@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>花飛訓練平台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>花飛訓練平台</h1>
+    <span class="sub"><b>美國手（Mode 2）</b>· Acro 模式 · 左桿 油門／Yaw · 右桿 Pitch／Roll</span>
+  </header>
+
+  <nav class="tabs pages" id="pages" role="tablist" aria-label="頁面">
+    <button class="tab" role="tab" type="button" data-page="class" aria-selected="true">教室</button>
+    <button class="tab" role="tab" type="button" data-page="menu" aria-selected="false">訓練菜單</button>
+    <button class="tab" role="tab" type="button" data-page="free" aria-selected="false">自由練習</button>
+  </nav>
+
+  <!-- 教室＋自由練習共用同一個舞台 -->
+  <div id="lab" class="wrap" style="gap:16px">
+    <nav class="tabs lesson-tabs" id="tabs" role="tablist" aria-label="課程"></nav>
+
+    <div class="main">
+      <section>
+        <div class="stage" id="stage">
+          <canvas id="view" aria-label="穿越機 3D 視圖"></canvas>
+          <canvas id="fpv" aria-label="FPV 鏡頭畫面"></canvas>
+          <span class="fpvtag">FPV 25°</span>
+          <div class="phase" id="phase"></div>
+          <div class="banner" id="banner" hidden>觸地</div>
+          <div class="legend">
+            <span><i style="background:var(--accent)"></i>推力（機身上方）</span>
+            <span><i style="background:var(--cyan)"></i>垂直分量</span>
+            <span><i style="background:#fff;height:2px"></i>重力線：青色碰到才不掉高</span>
+          </div>
+        </div>
+        <div class="bar">
+          <div class="seg" id="variants" role="group" aria-label="示範版本"></div>
+          <span class="spacer"></span>
+          <div class="seg" id="speed" role="group" aria-label="播放速度"></div>
+          <div class="seg" id="camsel" role="group" aria-label="視角"></div>
+          <button class="btn" id="pause" type="button">暫停</button>
+          <button class="btn" id="restart" type="button">重播</button>
+        </div>
+      </section>
+
+      <aside class="panel" aria-label="遙控器">
+        <div class="ptitle"><span>搖桿</span><span id="modeTag">示範中</span></div>
+        <div class="sticks">
+          <div class="stick"><canvas id="stL" aria-label="左桿"></canvas><div class="lab"><b>左桿</b><br>上下 油門 · 左右 Yaw</div></div>
+          <div class="stick"><canvas id="stR" aria-label="右桿"></canvas><div class="lab"><b>右桿</b><br>上下 Pitch · 左右 Roll</div></div>
+        </div>
+        <div class="chs" id="chs"></div>
+        <div class="ptitle"><span>姿態與高度</span></div>
+        <div class="tele" id="tele"></div>
+        <canvas id="alt" aria-label="高度歷史"></canvas>
+      </aside>
+    </div>
+
+    <section class="panel notes">
+      <div>
+        <h2 id="ntitle"></h2>
+        <ul id="nlist"></ul>
+        <div class="result" id="result"></div>
+      </div>
+      <div>
+        <div class="watch"><span class="k">盯這裡</span><span id="nwatch"></span></div>
+        <div class="keys" id="keys" hidden>
+          <kbd>W / S</kbd><span>油門加 / 減（不回中）</span>
+          <kbd>A / D</kbd><span>Yaw 左 / 右</span>
+          <kbd>↑ / ↓</kbd><span>Pitch 推 / 拉</span>
+          <kbd>← / →</kbd><span>Roll 左 / 右</span>
+          <kbd>R</kbd><span>重新起飛</span>
+        </div>
+      </div>
+    </section>
+
+    <p class="foot">物理是簡化模型：推重比 2.5、懸停油門 40%、線性 Rates（滿桿 Roll／Pitch 500°/s、Yaw 400°/s），沒有 Expo、延遲與風。示範用來理解桿量和姿態的對應，實際手感以 Uncrashed 和真機為準。</p>
+  </div>
+
+  <main id="menu" class="menu" hidden></main>
+</div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
