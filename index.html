@@ -62,6 +62,28 @@
       </aside>
     </div>
 
+    <section class="panel gp" id="gpPanel" aria-label="遙控器輸入" hidden>
+      <div class="ptitle"><span>遙控器（USB 搖桿）</span><span id="gpStatus">未連接</span></div>
+      <div class="row">
+        <button class="btn" id="gpCal" type="button" disabled>校正遙控器</button>
+        <span class="sub" id="gpHint"></span>
+      </div>
+      <div class="gp-sliders">
+        <label>死區 <output id="gpDzV"></output><input type="range" id="gpDz" min="0" max="0.15" step="0.01"></label>
+        <label>Expo <output id="gpExV"></output><input type="range" id="gpEx" min="0" max="0.8" step="0.05"></label>
+        <label>Rate 倍率 <output id="gpRtV"></output><input type="range" id="gpRt" min="0.5" max="1.5" step="0.05"></label>
+      </div>
+      <div class="wiz" id="gpWiz" hidden>
+        <div class="wiz-step" id="wizStep"></div>
+        <div class="wiz-live" id="wizLive"></div>
+        <div class="wiz-err" id="wizErr" role="alert"></div>
+        <div class="row">
+          <button class="btn primary" id="wizNext" type="button" disabled>下一步</button>
+          <button class="btn" id="wizCancel" type="button">取消</button>
+        </div>
+      </div>
+    </section>
+
     <section class="panel notes">
       <div>
         <h2 id="ntitle"></h2>

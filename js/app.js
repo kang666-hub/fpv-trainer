@@ -3,6 +3,7 @@ import { Sim, HOVER, yawOnly, euler } from './core.js';
 import { LESSONS, FREE, lessonStart, lessonCtrl } from './demos.js';
 import { scene, viewCam, camFromBody, sizeCanvas, drawStick, drawAlt, resetChase } from './view.js';
 import * as store from './progress.js';
+import { createGamepadInput, shapeSticks, detectAxis, finalizeCalibration, DEFAULT_GAMEPAD } from './gamepad.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -96,12 +97,141 @@ function stickPointer(cv, side) {
 stickPointer($('stL'), 'L'); stickPointer($('stR'), 'R');
 function freeControl(dt) {
   const k = (a, b) => (keys[a] ? 1 : 0) - (keys[b] ? 1 : 0);
+  const gs = padSticks(); // 遙控器已連接且已校正才有值；觸控拖曳的那支搖桿仍以觸控為準
   if (freeIn.ptrL) { freeIn.thr = (freeIn.ptrL[1] + 1) / 2; freeIn.yaw = freeIn.ptrL[0]; }
+  else if (gs) { freeIn.thr = gs.thr; freeIn.yaw = gs.yaw; }
   else { freeIn.thr = Math.max(0, Math.min(1, freeIn.thr + k('KeyW', 'KeyS') * 0.45 * dt)); freeIn.yaw += (k('KeyD', 'KeyA') * 0.7 - freeIn.yaw) * Math.min(1, dt * 10); }
   if (freeIn.ptrR) { freeIn.pitch = freeIn.ptrR[1]; freeIn.roll = freeIn.ptrR[0]; }
+  else if (gs) { freeIn.pitch = gs.pitch; freeIn.roll = gs.roll; }
   else { freeIn.pitch += (k('ArrowUp', 'ArrowDown') * 0.5 - freeIn.pitch) * Math.min(1, dt * 10); freeIn.roll += (k('ArrowRight', 'ArrowLeft') * 0.6 - freeIn.roll) * Math.min(1, dt * 10); }
-  return { thr: freeIn.thr, yaw: freeIn.yaw, pitch: freeIn.pitch, roll: freeIn.roll, phase: '自由練習 · 鍵盤 W S A D + 方向鍵，或拖曳右側搖桿' };
+  return { thr: freeIn.thr, yaw: freeIn.yaw, pitch: freeIn.pitch, roll: freeIn.roll, phase: gs ? '自由練習 · 遙控器輸入' : '自由練習 · 鍵盤 W S A D + 方向鍵，或拖曳右側搖桿' };
 }
+
+// ===== 遙控器（Gamepad）=====
+const pad = createGamepadInput();
+let settings = { version: 1 };
+let wiz = null; // 校正精靈狀態；null = 沒在校正
+
+const gpVals = () => ({ ...DEFAULT_GAMEPAD, ...(settings.gamepad || {}) });
+const gpCalibrated = () => !!(settings.gamepad && settings.gamepad.axes && settings.gamepad.id && settings.gamepad.id === pad.getId());
+// 有遙控器、已校正、且不在校正中，才採用遙控器；回傳已套用死區／Expo／Rate 的值
+function padSticks() {
+  if (wiz || !gpCalibrated()) return null;
+  const s = pad.getSticks();
+  return s ? shapeSticks(s, gpVals()) : null;
+}
+function applyPadMapping() { pad.setMapping(gpCalibrated() ? settings.gamepad.axes : null); }
+
+function updateGpUi() {
+  applyPadMapping();
+  const id = pad.getId(), cal = gpCalibrated();
+  $('gpStatus').textContent = id ? `已連接：${id}${cal ? '（已校正）' : '（尚未校正）'}` : '未連接';
+  $('gpCal').disabled = !id;
+  $('gpHint').textContent = !id ? '接上 USB 遙控器（Joystick／HID 模式）後，動一下搖桿或按個鍵，瀏覽器才看得到。'
+    : cal ? '遙控器輸入中；放開的搖桿回到鍵盤／觸控。' : '尚未校正：請按「校正遙控器」，校正前仍用鍵盤／觸控。';
+  if (!id && wiz) $('wizErr').textContent = '遙控器已斷線，請重新接上或取消。';
+}
+function updateGpSliders() {
+  const v = gpVals();
+  $('gpDz').value = v.deadzone; $('gpEx').value = v.expo; $('gpRt').value = v.rateScale;
+  $('gpDzV').textContent = Number(v.deadzone).toFixed(2); $('gpExV').textContent = Number(v.expo).toFixed(2); $('gpRtV').textContent = Number(v.rateScale).toFixed(2) + '×';
+}
+for (const [el, key] of [['gpDz', 'deadzone'], ['gpEx', 'expo'], ['gpRt', 'rateScale']]) {
+  $(el).addEventListener('input', async () => {
+    settings.gamepad = { ...(settings.gamepad || {}), [key]: Number($(el).value) };
+    updateGpSliders();
+    settings = await store.saveSettings({ gamepad: { [key]: Number($(el).value) } });
+  });
+}
+pad.onChange(updateGpUi);
+
+// 校正精靈：要求每步先把其他搖桿放回原位，所以「同一軸被指定給兩個通道」代表有桿沒放開或軸重複
+const WIZ = [
+  { text: '① 兩支搖桿放中間、油門拉到最低', kind: 'baseline' },
+  { text: '② 油門推到最高', kind: 'axis', key: 'thr' },
+  { text: '③ 油門放回最低，Yaw 打到最右', kind: 'axis', key: 'yaw' },
+  { text: '④ Yaw 放回中間，Pitch 推到最前', kind: 'axis', key: 'pitch' },
+  { text: '⑤ Pitch 放回中間，Roll 打到最右', kind: 'axis', key: 'roll' },
+  { text: '⑥ 兩支搖桿各畫一圈（每個方向都推到底）', kind: 'range' },
+  { text: '⑦ 全部放回中間（油門保持最低），然後按完成', kind: 'center' },
+];
+const KEY_NAME = { thr: '油門', yaw: 'Yaw', pitch: 'Pitch', roll: 'Roll' };
+const MIN_MOVE = 0.5, MIN_SPAN = 1.2, MAX_REST = 0.3;
+const assignedKeys = () => Object.keys(wiz.assign);
+
+function wizTrack(raw) {
+  for (const key of assignedKeys()) {
+    const i = wiz.assign[key].index, r = wiz.range[i] || (wiz.range[i] = { min: raw[i], max: raw[i] });
+    r.min = Math.min(r.min, raw[i]); r.max = Math.max(r.max, raw[i]);
+  }
+}
+// 目前這步的即時狀態：{ ok, text, err }
+function wizEval(raw) {
+  const st = WIZ[wiz.step];
+  if (!raw) return { ok: false, text: '', err: '遙控器已斷線，請重新接上或取消。' };
+  if (st.kind === 'baseline') return { ok: true, text: raw.map((v, i) => `軸${i}: ${v.toFixed(2)}`).join('  ') };
+  if (st.kind === 'axis') {
+    const d = detectAxis(wiz.baseline, raw);
+    const text = d.index < 0 ? '沒有偵測到動作' : `偵測到：軸 ${d.index}（${d.direction > 0 ? '＋' : '－'}方向，位移 ${d.delta.toFixed(2)}）`;
+    if (d.delta < MIN_MOVE) return { ok: false, text, err: `位移不足（需 ≥ ${MIN_MOVE}），請把搖桿推到底。` };
+    const dup = assignedKeys().find((k) => wiz.assign[k].index === d.index);
+    if (dup) return { ok: false, text, err: `軸 ${d.index} 已指定給「${KEY_NAME[dup]}」。請確認其他搖桿都放回原位，或重做這一步。` };
+    return { ok: true, text, det: d };
+  }
+  if (st.kind === 'range') {
+    const lines = assignedKeys().map((k) => { const r = wiz.range[wiz.assign[k].index]; return `${KEY_NAME[k]}（軸${wiz.assign[k].index}）：${r.min.toFixed(2)} ～ ${r.max.toFixed(2)}`; });
+    const ok = assignedKeys().every((k) => { const r = wiz.range[wiz.assign[k].index]; return r.max - r.min >= MIN_SPAN; });
+    return { ok, text: lines.join('\n'), err: ok ? '' : `還有搖桿的行程不夠（每軸需 ≥ ${MIN_SPAN}），繼續畫圈。` };
+  }
+  // center：除了油門，其他三軸要回到基準附近
+  const off = assignedKeys().filter((k) => Math.abs(raw[wiz.assign[k].index] - wiz.baseline[wiz.assign[k].index]) > MAX_REST);
+  return { ok: off.length === 0, text: assignedKeys().map((k) => `${KEY_NAME[k]}：${raw[wiz.assign[k].index].toFixed(2)}`).join('  '), err: off.length ? `還沒放回原位：${off.map((k) => KEY_NAME[k]).join('、')}` : '' };
+}
+function wizRender(ev) {
+  const st = WIZ[wiz.step];
+  setTxt('wizStep', `步驟 ${wiz.step + 1}／${WIZ.length}　${st.text}`);
+  setTxt('wizLive', ev.text || '');
+  setTxt('wizErr', ev.err || wiz.fail || '');
+  $('wizNext').disabled = !ev.ok;
+  $('wizNext').textContent = wiz.step === WIZ.length - 1 ? '完成並存檔' : '下一步';
+}
+function wizTick() {
+  if (!wiz) return;
+  const raw = pad.getRaw();
+  if (raw) wizTrack(raw);
+  wizRender(wizEval(raw));
+}
+function wizOpen() {
+  const raw = pad.getRaw(); if (!raw) return;
+  wiz = { step: 0, baseline: null, assign: {}, range: {} };
+  $('gpWiz').hidden = false; $('gpCal').disabled = true;
+  wizTick();
+}
+function wizClose() { wiz = null; $('gpWiz').hidden = true; $('wizErr').textContent = ''; updateGpUi(); }
+async function wizNext() {
+  const raw = pad.getRaw(), ev = wizEval(raw);
+  if (!raw || !ev.ok) return;
+  const st = WIZ[wiz.step];
+  if (st.kind === 'baseline') wiz.baseline = raw.slice();
+  else if (st.kind === 'axis') {
+    wiz.assign[st.key] = { index: ev.det.index, direction: ev.det.direction };
+    wiz.range[ev.det.index] = { min: Math.min(wiz.baseline[ev.det.index], raw[ev.det.index]), max: Math.max(wiz.baseline[ev.det.index], raw[ev.det.index]) };
+  } else if (st.kind === 'center') {
+    let axes;
+    try { axes = finalizeCalibration({ assign: wiz.assign, range: wiz.range, center: raw.slice() }); }
+    catch (e) { wiz.fail = '校正資料不完整，請取消後重做。'; return; }
+    const bad = Object.entries(axes).find(([, m]) => !(m.max - m.min >= MIN_MOVE) || (m.center !== undefined && (m.center < m.min || m.center > m.max)));
+    if (bad) { wiz.fail = `${KEY_NAME[bad[0]]} 的行程或中點不合理，請取消後重做。`; return; }
+    const v = gpVals();
+    settings = await store.saveSettings({ gamepad: { id: pad.getId(), axes, deadzone: v.deadzone, expo: v.expo, rateScale: v.rateScale } });
+    wizClose(); return;
+  }
+  wiz.step++; wiz.fail = '';
+  wizTick();
+}
+$('gpCal').onclick = wizOpen;
+$('wizNext').onclick = wizNext;
+$('wizCancel').onclick = wizClose; // 取消不動已存的設定
 
 // ===== 面板更新 =====
 function setTxt(id, v) { const el = $(id); if (el.textContent !== v) el.textContent = v; }
@@ -123,6 +253,7 @@ const DT = 1 / 240;
 function frame(now) {
   const real = Math.min(0.05, (now - last) / 1000); last = now;
   if (page !== 'menu') {
+    pad.poll(); wizTick();
     if (!paused) {
       acc += real * speed;
       while (acc >= DT) {
@@ -148,6 +279,7 @@ function frame(now) {
     const f = sizeCanvas($('fpv'), 16 / 9);
     scene(f.ctx, camFromBody(sim.p, sim.R, f.W, f.H, 25, 110), S, false);
     setTxt('phase', ctrlOut.phase || '');
+    if (L.free) setTxt('modeTag', gpCalibrated() && !wiz ? '遙控器' : '你在飛');
     drawStick($('stL'), sim.st.yaw, sim.st.thr * 2 - 1, stickTrail.L.filter((_, i) => i % 3 === 0), true);
     drawStick($('stR'), sim.st.roll, sim.st.pitch, stickTrail.R.filter((_, i) => i % 3 === 0), false);
     updatePanel(); drawAlt($('alt'), hist, stats.z0);
@@ -281,6 +413,8 @@ function setPage(p, demoId) {
   $('lab').hidden = p === 'menu';
   $('menu').hidden = p !== 'menu';
   $('tabs').hidden = p !== 'class';
+  $('gpPanel').hidden = p !== 'free' || !pad.supported;
+  if (p !== 'free' && wiz) wizClose();
   if (p === 'menu') { refreshMenu(); return; }
   if (p === 'free') { if (L !== FREE) selectLesson(FREE); }
   else {
@@ -304,6 +438,8 @@ async function init() {
     lessonsError = '無法載入 data/lessons.json（' + err.message + '）。請用 http 伺服器開啟（python3 -m http.server），不要直接點開檔案。';
   }
   progress = await store.loadProgress();
+  settings = await store.loadSettings();
+  updateGpSliders(); updateGpUi();
   buildSpeed(); selectLesson(CLASS[0]);
   requestAnimationFrame(frame);
 }

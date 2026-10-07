@@ -69,3 +69,26 @@ export async function importJSON(text) {
   if (!write(clean)) throw new Error('無法寫入瀏覽器儲存空間');
   return clean;
 }
+
+// ===== 設定（遙控器等）：與進度分開存，key 不同 =====
+const SETTINGS_KEY = 'fpv-trainer-settings-v1';
+
+function readSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    const s = raw ? JSON.parse(raw) : null;
+    return s && s.version === VERSION && typeof s === 'object' ? s : { version: VERSION };
+  } catch (e) { return { version: VERSION }; }
+}
+
+export async function loadSettings() { return readSettings(); }
+
+// patch 以頂層 key 合併；gamepad 再往下合併一層（滑桿只改單一欄位時不會洗掉校正結果）
+export async function saveSettings(patch) {
+  const s = readSettings();
+  for (const [k, v] of Object.entries(patch)) {
+    s[k] = k === 'gamepad' && v && typeof v === 'object' ? { ...(s.gamepad || {}), ...v } : v;
+  }
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (e) { /* 寫不進去就只在本次有效 */ }
+  return s;
+}
