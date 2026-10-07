@@ -56,9 +56,10 @@ export function mapAxes(rawAxes, mapping) {
   return out;
 }
 
-// 死區 → Expo → Rate 倍率（夾限在 ±1）。只作用在 yaw/pitch/roll，油門不動。
-export function shapeSticks(s, { deadzone = 0, expo = 0, rateScale = 1 } = {}) {
-  const f = (v) => clamp(applyExpo(applyDeadzone(v, deadzone), expo) * rateScale, -1, 1);
+// 死區 → Expo。結果維持 -1～1，只作用在 yaw/pitch/roll，油門不動。
+// Rate 倍率不在這裡處理：它乘在送進物理的角速度上（Sim.rateScale），否則 >1 時只會讓搖桿提早到頂。
+export function shapeSticks(s, { deadzone = 0, expo = 0 } = {}) {
+  const f = (v) => clamp(applyExpo(applyDeadzone(v, deadzone), expo), -1, 1);
   return { thr: s.thr, yaw: f(s.yaw), pitch: f(s.pitch), roll: f(s.roll) };
 }
 

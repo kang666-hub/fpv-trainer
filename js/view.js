@@ -164,3 +164,22 @@ export function drawAlt(cv, hist, z0) {
   c.beginPath(); pts.forEach((h, i) => i ? c.lineTo(X(h.t), Y(h.z)) : c.moveTo(X(h.t), Y(h.z))); c.strokeStyle = '#3fd0e0'; c.lineWidth = 2; c.stroke();
   const e = pts[pts.length - 1]; c.beginPath(); c.arc(X(e.t), Y(e.z), 3, 0, 7); c.fillStyle = '#3fd0e0'; c.fill();
 }
+
+// FPV 主視角的最小 OSD，直接畫在 canvas 上：中央準星、左下 高度／速度、右下 油門
+export function drawOSD(ctx, W, H, { alt, spd, thr }) {
+  const fs = Math.max(11, Math.min(16, W / 45)), pad = Math.max(8, W / 60), cx = W / 2, cy = H / 2, g = 5, l = 10;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.85)'; ctx.shadowBlur = 3;
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(cx - g - l, cy); ctx.lineTo(cx - g, cy); ctx.moveTo(cx + g, cy); ctx.lineTo(cx + g + l, cy);
+  ctx.moveTo(cx, cy - g - l); ctx.lineTo(cx, cy - g); ctx.moveTo(cx, cy + g); ctx.lineTo(cx, cy + g + l);
+  ctx.stroke();
+  ctx.font = `600 ${fs}px "JetBrains Mono",ui-monospace,monospace`; ctx.fillStyle = '#fff'; ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
+  ctx.fillText(`ALT ${alt.toFixed(1)} m`, pad, H - pad - fs * 1.3);
+  ctx.fillText(`SPD ${spd.toFixed(1)} m/s`, pad, H - pad);
+  ctx.textAlign = 'right';
+  ctx.fillText(`THR ${(thr * 100).toFixed(0)}%`, W - pad, H - pad);
+  ctx.restore();
+}

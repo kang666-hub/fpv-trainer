@@ -58,11 +58,11 @@ test('mapAxes：缺軸或 min=max 不產生 NaN', () => {
   for (const v of Object.values(r)) assert.ok(Number.isFinite(v));
 });
 
-test('shapeSticks：死區＋expo＋rate 倍率，結果夾在 ±1，油門不受影響', () => {
-  const r = shapeSticks({ thr: 0.4, yaw: 0.01, pitch: 1, roll: -1 }, { deadzone: 0.03, expo: 0, rateScale: 1.5 });
+test('shapeSticks：死區＋expo，結果維持 ±1，油門不受影響；不再處理 Rate 倍率', () => {
+  const r = shapeSticks({ thr: 0.4, yaw: 0.01, pitch: 1, roll: -1 }, { deadzone: 0.03, expo: 0 });
   assert.equal(r.thr, 0.4); assert.equal(r.yaw, 0); assert.equal(r.pitch, 1); assert.equal(r.roll, -1);
-  const h = shapeSticks({ thr: 0, yaw: 0.5, pitch: 0, roll: 0 }, { deadzone: 0, expo: 0, rateScale: 0.5 });
-  near(h.yaw, 0.25);
+  // rateScale 即使傳進來也不影響搖桿值（v1.2：倍率改乘在物理角速度上）
+  near(shapeSticks({ thr: 0, yaw: 0.5, pitch: 0, roll: 0 }, { deadzone: 0, expo: 0, rateScale: 1.5 }).yaw, 0.5);
 });
 
 test('detectAxis：找出位移最大的軸與正負方向', () => {

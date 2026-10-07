@@ -36,13 +36,24 @@ function euler(R) { // 前傾+、右滾+、航向（逆時針+）
   return { roll: Math.atan2(R[7], R[8]) / D2R, pitch: Math.asin(clamp(-R[6], -1, 1)) / D2R, yaw: Math.atan2(R[3], R[0]) / D2R };
 }
 
+// 搖桿值（-1～1）→ 機身角速度（rad/s）。scale 是自由練習的 Rate 倍率；教室示範一律 1。
+function bodyRates(st, scale = 1) {
+  return [st.roll * RATE.roll * D2R * scale, st.pitch * RATE.pitch * D2R * scale, -st.yaw * RATE.yaw * D2R * scale];
+}
+
+const GROUND_FRICTION = 4; // 1/s，停在地面時水平速度的衰減率
+
 class Sim {
-  constructor() { this.reset([0, 0, 2], [0, 0, 0], yawOnly(0)); }
-  reset(p, v, R) { this.p = p.slice(); this.v = v.slice(); this.R = R.slice(); this.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; this.crashed = false; this.t = 0; }
+  constructor() {
+    this.groundHold = false; // 預設關閉：只有自由練習開啟，教室示範走原本的觸地判定
+    this.rateScale = 1;
+    this.reset([0, 0, 2], [0, 0, 0], yawOnly(0));
+  }
+  reset(p, v, R) { this.p = p.slice(); this.v = v.slice(); this.R = R.slice(); this.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; this.crashed = false; this.t = 0; this.onGround = p[2] <= 0; }
   step(dt) {
     if (this.crashed) return;
     const s = this.st;
-    const w = [s.roll * RATE.roll * D2R, s.pitch * RATE.pitch * D2R, -s.yaw * RATE.yaw * D2R];
+    const w = bodyRates(s, this.rateScale);
     this.R = M.ortho(M.mul(this.R, M.exp(V.mul(w, dt))));
     const thrust = V.mul(M.col(this.R, 2), clamp(s.thr, 0, 1) * TMAX);
     const a = V.add(thrust, [0, 0, -G], V.mul(this.v, -DRAG));
@@ -50,9 +61,14 @@ class Sim {
     this.p = V.add(this.p, V.mul(this.v, dt));
     this.t += dt;
     if (this.p[2] <= 0) {
-      if (this.v[2] < -2.5 || this.R[8] < 0.5) { this.crashed = true; this.p[2] = 0; }
+      if (this.groundHold) {
+        // 地面只是地板：只有「從空中接觸地面的那一刻」才判定觸地，停在地面上不判定、姿態照常轉
+        if (!this.onGround && (this.v[2] < -2.5 || this.R[8] < 0.5)) { this.crashed = true; this.p[2] = 0; return; }
+        const k = Math.exp(-GROUND_FRICTION * dt);
+        this.onGround = true; this.p[2] = 0; this.v = [this.v[0] * k, this.v[1] * k, Math.max(0, this.v[2])];
+      } else if (this.v[2] < -2.5 || this.R[8] < 0.5) { this.crashed = true; this.p[2] = 0; }
       else { this.p[2] = 0; this.v = [this.v[0] * 0.5, this.v[1] * 0.5, 0]; }
-    }
+    } else this.onGround = false;
   }
 }
 
@@ -80,4 +96,4 @@ function track(sim, ref, kp = 4, kd = 3.2, kr = 9) {
 }
 function attFor(ref) { return desiredAtt(V.add(ref.a || [0, 0, 0], V.mul(ref.v, DRAG), [0, 0, G]), ref.psi); }
 
-export { G, TMAX, DRAG, RATE, D2R, HOVER, V, M, clamp, yawOnly, euler, Sim, desiredAtt, track, attFor };
+export { G, TMAX, DRAG, RATE, D2R, HOVER, V, M, clamp, yawOnly, euler, Sim, bodyRates, desiredAtt, track, attFor };
