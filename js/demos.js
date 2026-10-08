@@ -88,7 +88,7 @@ const B1 = {
 // B2 直線噴射：Pitch 壓到推力垂直分量剛好 = 重力（cosθ = 1/HOVER⁻¹），全油門加速，再收油＋Pitch 回正
 const B2_T = { hover: 1.0, ramp: 1.3, accEnd: 2.3, recEnd: 2.7 };
 const B2 = {
-  id: 'B2', dur: 6.5, cam: 'side', side: { follow: [3, -14, 3] },
+  id: 'B2', dur: 6.5, cam: 'side', side: { follow: [3, -14, 3] }, fullTrail: true,
   variants: [{ key: 'jet', tilt: Math.acos(HOVER) / D2R, bal: true }, { key: 'short', tilt: 30, bal: false }],
   start: (sim) => { sim.reset([-25, 0, 3], [0, 0, 0], yawOnly(0)); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; },
   ctrl: (v, sim, t, mem) => {
@@ -169,10 +169,10 @@ const B4 = {
 };
 
 // B5 破 S：（可選）微拉高 → 收油半滾成倒置 → 半圈穿過下方 → 改出
-const B5_V = 6, B5_R = 3, B5_Z = 25;
+const B5_V = 6, B5_R = 3, B5_Z = 12;
 const B5_LEVEL = (t) => ({ p: [-B5_V + B5_V * t, 0, B5_Z], v: [B5_V, 0, 0], psi: 0, psid: 0 });
 const B5 = {
-  id: 'B5', dur: 7, cam: 'side', side: { follow: [3, -19, 4] },
+  id: 'B5', dur: 7, cam: 'side', side: { pos: [4, -21, 7.5], look: [4, 0, 7.5] }, fullTrail: true,
   variants: [{ key: 'pull', pullUp: true }, { key: 'direct', pullUp: false }, { key: 'overthr', pullUp: false, over: true }],
   start: (sim) => startFromRef(sim, B5_LEVEL),
   ctrl: (v, sim, t, mem) => {
@@ -209,7 +209,25 @@ const B5 = {
     }
     return { ...track(sim, { p: [x0 - B5_V * (tau - Tl), 0, z0 - 2 * Rr], v: [-B5_V, 0, 0], psi: Math.PI, xh: [-1, 0, 0] }), phase: null };
   },
-  ghost: () => [],
+  // 預期路徑（飛法版）：半滾點之後的半圓＋改出直線。對照版不畫
+  ghost: (v) => {
+    if (v.over) return [];
+    const { x0, z0 } = probe(B5, v).mem.lp, w = B5_V / B5_R, o = [];
+    for (let ph = 0; ph <= Math.PI + 1e-6; ph += Math.PI / 24) o.push([x0 + B5_R * Math.sin(ph), 0, z0 - B5_R + B5_R * Math.cos(ph)]);
+    o.push([x0 - 8, 0, z0 - 2 * B5_R]);
+    return o;
+  },
+  // 參照物：進場高度線（白）、改出高度線（青，改出後才出現）、兩線之間的 Δh、同高的參照塔
+  overlay: (v, sim, t, mem) => {
+    const { x0 } = probe(B5, v).mem.lp, m = mem.marks || {}, out = { lines: [{ x0: x0 - 8, x1: x0 + 4, z: B5_Z, color: 'rgba(255,255,255,0.8)', label: `進場高度 ${B5_Z} m` }], towers: [{ pos: [x0, 1.2], h: B5_Z }] };
+    if (m.p4 && t >= m.p4) {
+      if (t <= m.p4 + 1 || mem.exitZ === undefined) mem.exitZ = sim.p[2]; // 改出後 1 秒內跟著機身，之後固定
+      const d = mem.exitZ - B5_Z;
+      out.lines.push({ x0: x0 - 8, x1: x0 + 4, z: mem.exitZ, color: 'rgba(63,208,224,0.9)', label: '改出高度' });
+      out.delta = { x: x0 + 4, z0: B5_Z, z1: mem.exitZ, text: `${d < 0 ? '−' : '+'}${Math.abs(d).toFixed(1)} m` };
+    }
+    return out;
+  },
   stages: (v) => { const m = probe(B5, v).mem.marks; return v.pullUp ? [m.p1, m.p2, m.p3, m.p4, B5.dur] : [m.p1, m.p3, m.p4, B5.dur]; },
 };
 
@@ -266,7 +284,7 @@ const A4_SCRIPT = (heavy) => [
   { t1: 99, hold: true },
 ];
 const A4 = {
-  id: 'A4', dur: 6, cam: 'side', side: { follow: [0, -9, 1] },
+  id: 'A4', dur: 6, cam: 'side', side: { follow: [0, -9, 1] }, fullTrail: true,
   variants: [{ key: 'cut' }, { key: 'keep', heavy: true }],
   start: (sim) => { const r = INV_HOVER(); sim.reset(r.p, r.v, attFor(r)); },
   ctrl: (v, sim, t, mem) => scriptCtrl(A4_SCRIPT(!!v.heavy), sim, t, mem),

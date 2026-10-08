@@ -339,7 +339,7 @@ function frame(now) {
         sim.step(DT); t += DT;
         stats.minz = Math.min(stats.minz, sim.p[2]); stats.maxz = Math.max(stats.maxz, sim.p[2]);
         if (sim.crashed) { stats.crashed = true; $('banner').hidden = false; }
-        if ((trailT += DT) > 0.05) { trailT = 0; trail.push(sim.p.slice()); if (trail.length > 70) trail.shift(); }
+        if ((trailT += DT) > 0.05) { trailT = 0; trail.push(sim.p.slice()); if (trail.length > (L.fullTrail ? 4000 : 70)) trail.shift(); } // 腳本示範（fullTrail）保留整輪軌跡，重播時 restart 會清掉
         if ((histT += DT) > 0.04) { histT = 0; hist.push({ t, z: sim.p[2] }); if (hist.length > 400) hist.shift(); }
         if (!L.free && t >= L.dur) { finishRun(); restart(); }
         const sl = stickTrail.L, sr = stickTrail.R;
@@ -347,7 +347,7 @@ function frame(now) {
         if (sl.length > 90) { sl.shift(); sr.shift(); }
       }
     }
-    const S = { sim, poles: L.poles, ghost, trail };
+    const S = { sim, poles: L.poles, ghost, trail, marks: L.overlay ? L.overlay(L.variants[vIdx], sim, t, mem) : null };
     const fpvMain = L.free && freeView === 'fpv'; // 自由練習預設 FPV 為大畫面，小畫面放第三人稱
     const mode = L.free ? 'chase' : camMode;
     const drawChase = (cv, ratio) => { const c = sizeCanvas(cv, ratio); scene(c.ctx, viewCam(c.W, c.H, sim, mode, L.side), S, true); };

@@ -56,11 +56,11 @@ function drawGrid(ctx, cam) {
   }
 }
 function drawPole(ctx, cam, pp) {
-  const a = [pp[0], pp[1], 0], b = [pp[0], pp[1], 6];
-  const z = V.dot(V.sub([pp[0], pp[1], 3], cam.c), cam.f); if (z < NEAR) return;
+  const h = pp[2] || 6, a = [pp[0], pp[1], 0], b = [pp[0], pp[1], h];
+  const z = V.dot(V.sub([pp[0], pp[1], h / 2], cam.c), cam.f); if (z < NEAR) return;
   const w = Math.max(1.5, 0.22 * cam.F / z);
   line(ctx, cam, a, b, '#8f98a2', w);
-  line(ctx, cam, [pp[0], pp[1], 2.9], [pp[0], pp[1], 3.1], '#ff6a1f', w * 1.05);
+  line(ctx, cam, [pp[0], pp[1], h / 2 - 0.1], [pp[0], pp[1], h / 2 + 0.1], '#ff6a1f', w * 1.05);
   const top = proj(cam, b); if (top) { ctx.beginPath(); ctx.arc(top[0], top[1], Math.max(2, 0.25 * cam.F / top[2]), 0, 7); ctx.fillStyle = '#ffe2b8'; ctx.fill(); }
 }
 function poly(ctx, cam, pts, color, w, dash) {
@@ -94,6 +94,22 @@ function drawDrone(ctx, cam, sim) {
   const tick = V.add(p, [0, 0, L0]), hd = V.norm(V.cross([0, 0, 1], cam.f).map((v) => v || 0.001));
   line(ctx, cam, V.add(tick, V.mul(hd, -0.28)), V.add(tick, V.mul(hd, 0.28)), '#ffffff', 2);
 }
+// 示範的參照物：水平虛線（進場／改出高度）、兩線之間的 Δh、同高的參照塔。座標都在 y=0 的飛行面上
+function drawMarks(ctx, cam, M) {
+  const fs = Math.max(11, Math.min(14, cam.W / 48));
+  ctx.save(); ctx.font = `600 ${fs}px "JetBrains Mono",ui-monospace,monospace`; ctx.textBaseline = 'middle';
+  for (const t of M.towers || []) drawPole(ctx, cam, [t.pos[0], t.pos[1], t.h]);
+  for (const l of M.lines || []) {
+    poly(ctx, cam, [[l.x0, 0, l.z], [l.x1, 0, l.z]], l.color, 1.5, [7, 5]);
+    const P = proj(cam, [l.x0, 0, l.z]); if (P) { ctx.textAlign = 'left'; ctx.fillStyle = l.color; ctx.fillText(l.label, P[0] + 4, P[1] - fs * 0.8); }
+  }
+  const d = M.delta;
+  if (d) {
+    poly(ctx, cam, [[d.x, 0, d.z0], [d.x, 0, d.z1]], 'rgba(255,255,255,0.85)', 1.5);
+    const P = proj(cam, [d.x, 0, (d.z0 + d.z1) / 2]); if (P) { ctx.textAlign = 'left'; ctx.fillStyle = '#fff'; ctx.fillText('Δh ' + d.text, P[0] + 6, P[1]); }
+  }
+  ctx.restore();
+}
 export function sizeCanvas(cv, ratio) {
   const dpr = Math.min(2, devicePixelRatio || 1), w = cv.clientWidth, h = w / ratio;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
@@ -107,6 +123,7 @@ export function scene(ctx, cam, S, withDrone) {
   poles.filter((o) => o.z >= dz).sort((a, b) => b.z - a.z).forEach((o) => drawPole(ctx, cam, o.pp));
   if (S.ghost.length) poly(ctx, cam, S.ghost, 'rgba(255,255,255,0.4)', 1.5, [6, 6]);
   if (S.trail.length > 1) poly(ctx, cam, S.trail, 'rgba(255,106,31,0.55)', 2);
+  if (S.marks) drawMarks(ctx, cam, S.marks);
   if (withDrone) drawDrone(ctx, cam, sim);
   poles.filter((o) => o.z < dz).sort((a, b) => b.z - a.z).forEach((o) => drawPole(ctx, cam, o.pp));
 }

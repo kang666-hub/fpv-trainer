@@ -70,7 +70,7 @@ test('B4：飛法 A 坡度 ≤ 15° 且航向變化 ≥ 90°；飛法 B 坡度 3
 
 test('B5：飛法改出後 1 秒高度 ≤ 進場且 |垂直速度| < 0.5；對照改出後高度 ≥ 進場 + 1 m', () => {
   for (const key of ['pull', 'direct', 'overthr']) {
-    const r = run('B5', key), m = r.mem.marks, z0 = 25;
+    const r = run('B5', key), m = r.mem.marks, z0 = 12;
     const at = r.rec.reduce((a, x) => (Math.abs(x.t - (m.p4 + 1)) < Math.abs(a.t - (m.p4 + 1)) ? x : a));
     if (key === 'overthr') assert.ok(at.p[2] >= z0 + 1, `對照改出後高度 ${at.p[2].toFixed(2)}`);
     else {
