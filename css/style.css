@@ -155,7 +155,7 @@ header .sub{flex:1 1 260px}
 .timeline{margin-top:10px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:8px}
 .timeline[hidden]{display:none}
 .tl-bar{position:relative;display:flex;gap:3px;height:22px}
-.seg-i{display:grid;place-items:center;min-width:0;background:var(--panel2);border-radius:4px;color:var(--muted);font-size:12px;overflow:hidden}
+.seg-i{display:grid;place-items:center;min-width:16px;background:var(--panel2);border-radius:4px;color:var(--muted);font-size:12px;overflow:hidden}
 .seg-i b{font-weight:500}
 .seg-i.on{background:var(--accent);color:#14100c}
 .tl-cur{position:absolute;top:-3px;bottom:-3px;width:2px;background:#fff;border-radius:1px;left:0;pointer-events:none;box-shadow:0 0 0 1px rgba(0,0,0,.4)}

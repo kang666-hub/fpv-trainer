@@ -137,23 +137,51 @@ const B2 = {
 // B3 協調轉彎：Roll → Pitch → Yaw → 油門，依序出現（幾何控制器算出理想桿量，再依階段放行各通道）
 const B3_P = { T0: 1.0, R: 7, V: 7, z: 3, ang: 1.5 * Math.PI };
 const B3_ON = { pitch: 0.4, yaw: 0.8, thr: 1.2 }; // 相對進彎時間
-const B3_TC = B3_P.ang / (B3_P.V / B3_P.R);
+// 大坡度側飛過彎：V=10、R=4.8 → 向心加速度 V²/R ≈ 2.1g，坡度 atan(2.1) ≈ 65°、油門約 95%。坡度大，轉彎靠 Pitch 拉，Yaw 反而少
+const B3_STEEP = { T0: 1.0, R: 4.8, V: 10, z: 3, ang: 1.5 * Math.PI, softA: true, rt: 0.25 };
+const B3_STEEP_ON = { pitch: 0.05, yaw: 0.1, thr: 0.12 };
+// 對照：坡度 80° 撐不住。用腳本固定坡度（不用追蹤控制器），油門全開，垂直分力只有 cos80° × 2.5 ≈ 0.43 倍重力
+const B3_OVER = { T0: 1.0, bank: 80, z0: 6, V: 10 };
+const tcOf3 = (P) => P.ang / (P.V / P.R);
+function overSteepCtrl(sim, t) {
+  if (t < B3_OVER.T0) return { ...track(sim, { p: [-B3_OVER.V * (B3_OVER.T0 - t), -B3_P.R, B3_OVER.z0], v: [B3_OVER.V, 0, 0], psi: 0, psid: 0 }), phase: null };
+  // 坡度固定在 80°（和 B3 一樣向左轉）。路線轉彎的角速度 = 推力水平分量垂直於速度的部分 ÷ 速度；換算成機身三軸，機頭才跟得上路線
+  const e = euler(sim.R), vx = sim.v[0], vy = sim.v[1], vh2 = Math.max(4, vx * vx + vy * vy);
+  const ahx = sim.R[2] * TMAX, ahy = sim.R[5] * TMAX, wz = (vx * ahy - vy * ahx) / vh2;
+  const body = [sim.R[6] * wz, sim.R[7] * wz, sim.R[8] * wz]; // 世界座標垂直軸的轉動，換算成機身三軸
+  return {
+    thr: 1,
+    roll: clamp((-B3_OVER.bank - e.roll) / 10, -1, 1),
+    pitch: clamp(body[1] / (RATE.pitch * D2R), -1, 1),
+    yaw: clamp(-body[2] / (RATE.yaw * D2R), -1, 1),
+    phase: null,
+  };
+}
 const B3 = {
   id: 'B3', dur: 8, cam: 'chase', side: { pos: [-15, -17, 11], look: [0, 0, 2] },
-  variants: [{ key: 'coord', thrOn: B3_ON.thr }, { key: 'nocomp', thrOn: Infinity }],
-  start: (sim) => startFromRef(sim, (t) => refTurn(t, B3_P)),
+  variants: [{ key: 'coord', thrOn: B3_ON.thr }, { key: 'nocomp', thrOn: Infinity }, { key: 'steep', P: B3_STEEP, on: B3_STEEP_ON }, { key: 'toosteep', over: true }],
+  start: (sim, v) => {
+    if (v && v.over) { const r = { p: [-B3_OVER.V * B3_OVER.T0, -B3_P.R, B3_OVER.z0], v: [B3_OVER.V, 0, 0], psi: 0, psid: 0 }; sim.reset(r.p, r.v, attFor(r)); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; return; }
+    const P = (v && v.P) || B3_P; startFromRef(sim, (t) => refTurn(t, P));
+  },
   ctrl: (v, sim, t, mem) => {
-    const c = { ...track(sim, refTurn(t, B3_P)), phase: null }, T0 = B3_P.T0, exit = t >= T0 + B3_TC, rel = t - T0;
+    if (v.over) return overSteepCtrl(sim, t);
+    const P = v.P || B3_P, on = v.on || B3_ON, thrOn = v.thrOn ?? on.thr;
+    const c = { ...track(sim, refTurn(t, P)), phase: null }, T0 = P.T0, exit = t >= T0 + tcOf3(P), rel = t - T0;
     if (t < T0) { mem.thr0 = c.thr; return c; }
     if (!exit) {
-      if (rel < B3_ON.pitch) c.pitch = 0;
-      if (rel < B3_ON.yaw) c.yaw = 0;
-      if (rel < v.thrOn) c.thr = mem.thr0;
-    } else if (!isFinite(v.thrOn)) c.thr = mem.thr0;
+      if (rel < on.pitch) c.pitch = 0;
+      if (rel < on.yaw) c.yaw = 0;
+      if (rel < thrOn) c.thr = mem.thr0;
+    } else if (!isFinite(thrOn)) c.thr = mem.thr0;
     return c;
   },
-  ghost: () => sampleRef((t) => refTurn(t, B3_P), 0, 7),
-  stages: () => [B3_P.T0, B3_P.T0 + B3_ON.pitch, B3_P.T0 + B3_ON.yaw, B3_P.T0 + B3_ON.thr, B3_P.T0 + B3_TC, 8],
+  ghost: (v) => (v.over ? [] : sampleRef((t) => refTurn(t, v.P || B3_P), 0, 7)),
+  stages: (v) => {
+    if (v.over) return [B3_OVER.T0, B3_OVER.T0 + 0.3, 8];
+    const P = v.P || B3_P, on = v.on || B3_ON;
+    return [P.T0, P.T0 + on.pitch, P.T0 + on.yaw, P.T0 + on.thr, P.T0 + tcOf3(P), 8];
+  },
 };
 
 // B4 Yaw 主導轉彎：機頭相對路線朝圓心偏 delta。delta 越大，Roll 越少、Yaw 越多；平轉時機頭幾乎就是推力水平分量的方向

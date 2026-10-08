@@ -75,6 +75,20 @@ test('B3 飛法：Roll 桿量 > 5% 的時間 < Pitch < Yaw', () => {
   assert.ok(tr < tp && tp < ty, `順序不對：Roll ${tr}, Pitch ${tp}, Yaw ${ty}`);
 });
 
+test('B3 steep：彎中平均坡度 60–68°、全程高度變化 < 0.5m、Roll→Pitch→Yaw 首次出現順序照舊、彎中平均 |Pitch| > |Yaw|；toosteep 1.5 秒內掉高 ≥ 2m', () => {
+  const r = run('B3', 'steep'), on = (ch) => r.rec.find((x) => Math.abs(x[ch]) > 0.05)?.t;
+  const [tr, tp, ty] = ['roll', 'pitch', 'yaw'].map(on);
+  assert.ok(tr < tp && tp < ty, `順序不對：Roll ${tr}, Pitch ${tp}, Yaw ${ty}`);
+  const T0 = 1.0, Tc = 1.5 * Math.PI / (10 / 4.8), turn = r.rec.filter((x) => x.t >= T0 + 0.5 && x.t < T0 + Tc);
+  const avg = (f) => turn.reduce((s, x) => s + f(x), 0) / turn.length;
+  const bank = avg((x) => Math.abs(euler(x.R).roll));
+  assert.ok(bank >= 60 && bank <= 68, `彎中平均坡度 ${bank.toFixed(1)}°`);
+  assert.ok(Math.max(...zs(r)) - Math.min(...zs(r)) < 0.5, `高度變化 ${(Math.max(...zs(r)) - Math.min(...zs(r))).toFixed(2)} m`);
+  assert.ok(avg((x) => Math.abs(x.pitch)) > avg((x) => Math.abs(x.yaw)), 'Pitch 應大於 Yaw');
+  const c = run('B3', 'toosteep'), z0 = c.rec.find((x) => x.t >= 1.0).p[2], z15 = c.rec.find((x) => x.t >= 2.5).p[2];
+  assert.ok(z0 - z15 >= 2, `1.5 秒只掉 ${(z0 - z15).toFixed(2)} m`);
+});
+
 test('B4：飛法 A 坡度 ≤ 15° 且航向變化 ≥ 90°；飛法 B 坡度 30–45°；對照航向轉 ≥ 90° 但路線方向變化 < 30°', () => {
   const bankOf = (r) => Math.max(...r.rec.map((x) => Math.abs(euler(x.R).roll)));
   const a = run('B4', 'flat');
