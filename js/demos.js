@@ -1,6 +1,6 @@
 // 示範腳本與軌跡。無 DOM。文字（標題、說明、階段說明）一律在 data/lessons.json，這裡只放動作本身。
 // 新增動作：在 LESSONS 加一筆（id 要和 lessons.json 的 demo 欄位一致），再到 lessons.json 補文字。
-import { HOVER, D2R, G, TMAX, DRAG, V, clamp, euler, track, attFor, yawOnly, Sim } from './core.js';
+import { HOVER, D2R, G, TMAX, DRAG, RATE, V, M, clamp, euler, track, attFor, yawOnly, Sim } from './core.js';
 
 const DT = 1 / 240;
 const wrapDeg = (a) => ((a + 540) % 360) - 180;
@@ -186,19 +186,31 @@ const B5 = {
       m.p2 = t;
     }
     if (!m.p2) m.p2 = t;
-    if (!m.p3) { // 收油＋半滾（以累計滾轉角收尾，剛好 180°）
+    if (!m.p3) { // 收油＋半滾（以累計滾轉角收尾，180° ± 2° 內）
       mem.acc = mem.acc || 0;
-      const stick = clamp((180 - mem.acc) / 10, -1, 1);
+      const stick = clamp(Math.max(0.12, (180 - mem.acc) / 6), 0, 1);
       mem.acc += stick * 500 * DT;
-      if (mem.acc >= 179) m.p3 = t;
+      if (mem.acc >= 179.9) m.p3 = t;
       return { thr: 0.12, roll: stick, pitch: 0, yaw: 0, phase: null };
     }
     const Rr = B5_R, w = B5_V / Rr, Tl = Math.PI / w;
     if (!mem.lp) mem.lp = { x0: sim.p[0], z0: sim.p[2], t0: t };
     const { x0, z0, t0 } = mem.lp, tau = t - t0;
-    if (tau < Tl) {
+    if (tau < Tl) { // 下半圈以 Pitch 為主：前饋角速度 ω = V/R 換成 Pitch 桿量，再加推力方向的誤差回饋；Roll、Yaw 只做小修正
       const ph = w * tau, s = Math.sin(ph), c = Math.cos(ph);
-      const out = { ...track(sim, { p: [x0 + Rr * s, 0, z0 - Rr + Rr * c], v: [B5_V * c, 0, -B5_V * s], a: [-B5_V * w * s, 0, -B5_V * w * c], psi: 0, xh: [c, 0, -s], w: [0, w, 0] }), phase: null };
+      const ad = [-B5_V * w * s + DRAG * B5_V * c + 4 * (x0 + Rr * s - sim.p[0]) + 3.2 * (B5_V * c - sim.v[0]), 0,
+        -B5_V * w * c - DRAG * B5_V * s + 4 * (z0 - Rr + Rr * c - sim.p[2]) + 3.2 * (-B5_V * s - sim.v[2]) + G];
+      const xb = M.col(sim.R, 0), yb = M.col(sim.R, 1), zb = M.col(sim.R, 2);
+      const e = Math.atan2(zb[2] * ad[0] - zb[0] * ad[2], zb[0] * ad[0] + zb[2] * ad[2]); // 推力方向到想要的方向，在垂直面內差多少
+      const wy = w + 9 * e;                                                              // 世界座標繞 y 軸的角速度（前饋 + 回饋）
+      const yy = Math.abs(yb[1]) > 0.3 ? yb[1] : 0.3;
+      const out = {
+        thr: clamp(V.dot(ad, zb) / TMAX, 0, 1),
+        pitch: clamp(wy * yb[1] / (RATE.pitch * D2R), -1, 1),
+        roll: clamp(6 * zb[1] / yy / (RATE.roll * D2R), -0.2, 0.2),
+        yaw: clamp(6 * xb[1] / yy / (RATE.yaw * D2R), -0.2, 0.2),
+        phase: null,
+      };
       if (v.over && tau > 0.4 * Tl) out.thr = 1; // 對照：拉到中段就猛推油門
       return out;
     }

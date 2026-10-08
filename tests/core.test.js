@@ -80,6 +80,18 @@ test('B5：飛法改出後 1 秒高度 ≤ 進場且 |垂直速度| < 0.5；對�
   }
 });
 
+test('B5 拉桿穿過下半圈：Pitch 為主（平均 |Pitch| > 10%，|Roll|、|Yaw| < 5%），半滾收在 180° ± 2°', () => {
+  for (const v of lesson('B5').variants) {
+    const r = runDemo(lesson('B5'), v), prof = stageProfile(lesson('B5'), v, r);
+    const i = jsonVariant('B5', v.key).stages.findIndex((s) => s.label === '拉桿穿過下半圈');
+    assert.ok(i >= 0, `B5/${v.key} 找不到下半圈階段`);
+    const s = prof[i];
+    assert.ok(s.roll < 5 && s.yaw < 5 && s.pitch > 10, `B5/${v.key} 下半圈 Roll ${s.roll.toFixed(1)}% Pitch ${s.pitch.toFixed(1)}% Yaw ${s.yaw.toFixed(1)}%`);
+    const e = euler(r.rec.find((x) => x.t >= r.mem.marks.p3).R);
+    assert.ok(Math.abs(Math.abs(e.roll) - 180) <= 2, `B5/${v.key} 半滾結束滾轉角 ${e.roll.toFixed(1)}°`);
+  }
+});
+
 test('A2 8 字：先轉一整圈（航向累計 ≥ 340°）再反向轉回（結束航向回到起點）且高度穩定', () => {
   const r = run('A2', 'eight'), z = zs(r);
   assert.ok(headingChange(r) >= 340, `航向累計 ${headingChange(r).toFixed(0)}°`);
