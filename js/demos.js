@@ -85,13 +85,36 @@ const B1 = {
   stages: () => [3, 7, 10],
 };
 
-// B2 直線噴射：Pitch 壓到推力垂直分量剛好 = 重力（cosθ = 1/HOVER⁻¹），全油門加速，再收油＋Pitch 回正
+// B2 直線噴射。兩種做法：
+//  dive（下壓噴射）：低速平飛 → Pitch 壓到看地板 → 油門推滿（邊加速邊下沉）→ 拉回正、油門還在（接住下沉）→ 回正立刻收油到懸停附近 → 滑行
+//  jet（等高噴射）：Pitch 壓到推力垂直分量剛好 = 重力（cosθ = 1/HOVER⁻¹），油門同步補到頂，再收油＋Pitch 回正
 const B2_T = { hover: 1.0, ramp: 1.3, accEnd: 2.3, recEnd: 2.7 };
+const B2_D = { t0: 1.0, tilt: 75, thr1: 0.45, squeeze: 0.25, full: 0.65, z: 3, v0: 5, x0: -25, balloonThr: HOVER + 0.25 };
+const B2_DIVE_REF = (t) => ({ p: [B2_D.x0 + B2_D.v0 * t, 0, B2_D.z], v: [B2_D.v0, 0, 0], psi: 0, psid: 0 });
+function diveCtrl(v, sim, t, mem) {
+  const m = (mem.marks = mem.marks || {}), e = euler(sim.R), lv = { roll: clamp(-e.roll * 8 / 500, -1, 1), yaw: 0, phase: null };
+  const pitchTo = (a) => clamp((a - e.pitch) / 12, -1, 1);
+  if (t < B2_D.t0) return { ...track(sim, B2_DIVE_REF(t)), phase: null };            // ① 低速平飛
+  const tFull = B2_D.t0 + B2_D.squeeze, tPull = tFull + B2_D.full;
+  if (t < tFull) return { thr: B2_D.thr1, pitch: pitchTo(B2_D.tilt), ...lv };         // ② 壓到看地板，油門還不多
+  if (t < tPull) return { thr: 1, pitch: pitchTo(B2_D.tilt), ...lv };                 // ③ 油門推滿，邊加速邊下沉
+  if (!m.exit) {                                                                      // ④ 拉回正，油門保持全開直到下沉停止
+    m.pull = m.pull ?? t;
+    if (e.pitch < 8 && sim.v[2] >= 0) m.exit = t;
+    else return { thr: 1, pitch: pitchTo(0), ...lv };
+  }
+  const thr = v.balloon ? B2_D.balloonThr : clamp(HOVER / Math.max(0.3, sim.R[8]), 0, 1); // ⑤ 收油到懸停附近（對照：油門沒收 → 上浮）
+  return { thr, pitch: pitchTo(0), ...lv };
+}
 const B2 = {
   id: 'B2', dur: 6.5, cam: 'side', side: { follow: [3, -14, 3] }, fullTrail: true,
-  variants: [{ key: 'jet', tilt: Math.acos(HOVER) / D2R, bal: true }, { key: 'short', tilt: 30, bal: false }],
-  start: (sim) => { sim.reset([-25, 0, 3], [0, 0, 0], yawOnly(0)); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; },
+  variants: [{ key: 'dive', dive: true }, { key: 'jet', tilt: Math.acos(HOVER) / D2R, bal: true }, { key: 'short', tilt: 30, bal: false }, { key: 'balloon', dive: true, balloon: true }],
+  start: (sim, v) => {
+    if (v && v.dive) { startFromRef(sim, B2_DIVE_REF); return; }
+    sim.reset([-25, 0, 3], [0, 0, 0], yawOnly(0)); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 };
+  },
   ctrl: (v, sim, t, mem) => {
+    if (v.dive) return diveCtrl(v, sim, t, mem);
     if (mem.z0 === undefined) mem.z0 = sim.p[2];
     const e = euler(sim.R), inAcc = t >= B2_T.hover && t < B2_T.accEnd;
     const target = inAcc ? v.tilt : 0;
@@ -104,7 +127,11 @@ const B2 = {
     return { thr, roll: clamp(-e.roll * 8 / 500, -1, 1), pitch: clamp((target - e.pitch) / 12, -1, 1), yaw: 0, phase };
   },
   ghost: () => [],
-  stages: () => [B2_T.hover, B2_T.ramp, B2_T.accEnd, B2_T.recEnd, 6.5],
+  stages: (v) => {
+    if (!v.dive) return [B2_T.hover, B2_T.ramp, B2_T.accEnd, B2_T.recEnd, 6.5];
+    const m = probe(B2, v).mem.marks, tFull = B2_D.t0 + B2_D.squeeze;
+    return [B2_D.t0, tFull, tFull + B2_D.full, m.exit, 6.5];
+  },
 };
 
 // B3 協調轉彎：Roll → Pitch → Yaw → 油門，依序出現（幾何控制器算出理想桿量，再依階段放行各通道）

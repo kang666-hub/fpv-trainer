@@ -50,6 +50,25 @@ test('B2 飛法：加速段最高點比進場高 < 0.5 m，速度峰值 > 進場
   assert.ok(Math.max(...zs(c)) - c.rec[0].p[2] > 2, '對照沒有上浮');
 });
 
+test('B2 dive：最低高度 ≥ 1.0m、速度峰值 ≥ 18 m/s、改出後 1 秒 |垂直速度| < 0.3、改出後 2 秒內不上浮（≤ 改出點 + 0.3m）', () => {
+  const r = run('B2', 'dive'), m = r.mem.marks;
+  assert.ok(m.exit, 'dive 沒有改出');
+  assert.equal(r.rec[0].p[2], 3); assert.ok(Math.abs(speed(r.rec[0]) - 5) < 0.01, '進場應為 3m、5 m/s');
+  assert.ok(Math.min(...zs(r)) >= 1.0, `最低高度 ${Math.min(...zs(r)).toFixed(2)} m`);
+  assert.ok(Math.max(...r.rec.map(speed)) >= 18, `速度峰值 ${Math.max(...r.rec.map(speed)).toFixed(1)} m/s`);
+  const near = (t) => r.rec.reduce((a, x) => (Math.abs(x.t - t) < Math.abs(a.t - t) ? x : a)), ex = near(m.exit);
+  assert.ok(Math.abs(near(m.exit + 1).v[2]) < 0.3, `改出後 1 秒垂直速度 ${near(m.exit + 1).v[2].toFixed(2)}`);
+  const top = Math.max(...r.rec.filter((x) => x.t >= m.exit && x.t <= m.exit + 2).map((x) => x.p[2]));
+  assert.ok(top <= ex.p[2] + 0.3, `改出後 2 秒內上浮 ${(top - ex.p[2]).toFixed(2)} m`);
+});
+
+test('B2 balloon：前段同 dive，改出後 2 秒比改出點高 ≥ 3m', () => {
+  const r = run('B2', 'balloon'), m = r.mem.marks, near = (t) => r.rec.reduce((a, x) => (Math.abs(x.t - t) < Math.abs(a.t - t) ? x : a));
+  assert.ok(near(m.exit + 2).p[2] - near(m.exit).p[2] >= 3, `只比改出點高 ${(near(m.exit + 2).p[2] - near(m.exit).p[2]).toFixed(2)} m`);
+  const d = run('B2', 'dive');
+  assert.equal(m.exit, d.mem.marks.exit, '前 4 步應與 dive 相同');
+});
+
 test('B3 飛法：Roll 桿量 > 5% 的時間 < Pitch < Yaw', () => {
   const r = run('B3', 'coord'), on = (ch) => r.rec.find((x) => Math.abs(x[ch]) > 0.05)?.t;
   const [tr, tp, ty] = ['roll', 'pitch', 'yaw'].map(on);
