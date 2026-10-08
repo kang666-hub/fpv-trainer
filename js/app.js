@@ -1,6 +1,6 @@
 // 外殼：分頁切換、讀 lessons.json、組裝畫面、主迴圈。
 import { Sim, HOVER, yawOnly, euler } from './core.js';
-import { LESSONS, FREE, lessonStart, lessonCtrl } from './demos.js';
+import { LESSONS, FREE, lessonStart, lessonCtrl, stageProfile } from './demos.js';
 import { scene, viewCam, camFromBody, sizeCanvas, drawStick, drawAlt, drawOSD, resetChase } from './view.js';
 import * as store from './progress.js';
 import { createGamepadInput, shapeSticks, detectAxis, finalizeCalibration, DEFAULT_GAMEPAD } from './gamepad.js';
@@ -10,7 +10,9 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 
 // ===== 狀態 =====
 const sim = new Sim();
-let lessonsData = null, lessonsError = '', progress = { version: 1, levels: {} };
+let lessonsData = null, lessonsError = '', progress = { version: 2, levels: {} };
+let allLevels = [];                  // lessons.json 所有關卡（基礎＋進階）攤平
+let stageEnds = [], stageProf = [], stageIdx = -1;
 let CLASS = LESSONS;                 // 教室課程順序（讀到 lessons.json 後依關卡順序排）
 let page = 'class';
 let freeView = 'fpv'; // 自由練習的大畫面：'fpv' | 'chase'，存在設定裡
@@ -18,6 +20,19 @@ let L = CLASS[0], vIdx = 0, t = 0, mem = {}, paused = false, speed = 1, crashT =
 let hist = [], trail = [], ghost = [], stats = { minz: 1e9, maxz: -1e9, z0: 0, crashed: false }, lastResult = '';
 let ctrlOut = { thr: HOVER, roll: 0, pitch: 0, yaw: 0, phase: '' };
 const stickTrail = { L: [], R: [] };
+
+// lessons.json 還沒載入（或載入失敗）時，示範先用最陽春的文字，不讓畫面壞掉
+for (const l of LESSONS) { l.title = l.title || l.id; l.notes = l.notes || []; l.watch = l.watch || ''; l.tier = l.tier || 'basic'; l.variants.forEach((v) => { v.kind = v.kind || 'style'; v.label = v.label || v.key; }); }
+
+// 把 lessons.json 的文字併進示範（示範只管動作，文字都在 json）
+function applyContent(data) {
+  for (const tier of data.tiers) for (const lv of tier.levels) {
+    const l = LESSONS.find((x) => x.id === lv.demo); if (!l) continue;
+    Object.assign(l, { title: lv.title, notes: lv.notes, watch: lv.watch, tier: tier.id, levelId: lv.id });
+    for (const v of l.variants) { const jv = lv.variants.find((x) => x.key === v.key); if (jv) Object.assign(v, { kind: jv.kind, label: jv.label, stages: jv.stages }); }
+  }
+  if (data.free) Object.assign(FREE, { title: data.free.title, notes: data.free.notes, watch: data.free.watch });
+}
 
 // ===== 舞台面板（通道、遙測）=====
 const CH = [
@@ -31,12 +46,22 @@ const TELE = [['alt', '高度', 'm'], ['vz', '垂直速度', 'm/s'], ['spd', '�
 $('tele').innerHTML = TELE.map(([id, k, u]) => `<div class="t"><div class="k">${k}</div><div class="v"><span id="t_${id}">0</span><small>${u}</small></div></div>`).join('');
 
 // ===== 教室 UI =====
+const shortTitle = (s) => String(s).replace(/（.*?）/g, '');
 function buildTabs() {
-  $('tabs').innerHTML = CLASS.map((l, i) => `<button class="tab" role="tab" id="tab_${l.id}" aria-selected="${l === L}" data-i="${i}"><span class="n">${String(i + 1).padStart(2, '0')}</span>${esc(l.title)}</button>`).join('');
+  const TIER = { basic: '基礎', advanced: '進階' };
+  let prev = '';
+  $('tabs').innerHTML = CLASS.map((l, i) => {
+    const head = l.tier !== prev ? `<span class="tg">${TIER[l.tier] || ''}</span>` : ''; prev = l.tier;
+    return `${head}<button class="tab" role="tab" id="tab_${l.id}" aria-selected="${l === L}" data-i="${i}"><span class="n">${esc(l.id)}</span>${esc(shortTitle(l.title))}</button>`;
+  }).join('');
   $('tabs').querySelectorAll('.tab').forEach((b) => { b.onclick = () => selectLesson(CLASS[+b.dataset.i]); });
 }
 function buildVariants() {
-  $('variants').innerHTML = L.variants.map((v, i) => `<button type="button" aria-pressed="${i === vIdx}" data-i="${i}"><span class="dot" style="background:var(--${v.kind === 'ok' ? 'ok' : 'bad'})"></span>${esc(v.label)}</button>`).join('');
+  const grp = (kind, name) => {
+    const items = L.variants.map((v, i) => ({ v, i })).filter((o) => o.v.kind === kind);
+    return items.length ? `<span class="vg"><span class="vg-l">${name}</span>${items.map(({ v, i }) => `<button type="button" aria-pressed="${i === vIdx}" data-i="${i}"><span class="dot ${kind}"></span>${esc(v.label)}</button>`).join('')}</span>` : '';
+  };
+  $('variants').innerHTML = L.free ? '' : grp('style', '飛法') + grp('contrast', '對照');
   $('variants').querySelectorAll('button').forEach((b) => { b.onclick = () => { vIdx = +b.dataset.i; buildVariants(); restart(); }; });
 }
 function buildSeg(id, items, cur, fn) {
@@ -71,12 +96,41 @@ function restart() {
   if (L.free) { // 自由練習：從地面起飛，油門從 0 開始
     sim.groundHold = true;
     sim.reset([-14, -9, 0], [0, 0, 0], yawOnly(0)); sim.st = { thr: 0, yaw: 0, pitch: 0, roll: 0 }; freeIn.thr = 0;
-  } else { sim.groundHold = false; sim.rateScale = 1; lessonStart(L, sim); }
+  } else { sim.groundHold = false; sim.rateScale = 1; lessonStart(L, sim, L.variants[vIdx]); }
   stats = { minz: sim.p[2], maxz: sim.p[2], z0: sim.p[2], crashed: false };
-  ghost = [];
-  if (L.ref) for (let s = L.pathT[0]; s <= L.pathT[1]; s += 0.08) ghost.push(L.ref(s).p);
+  ghost = L.free ? [] : L.ghost(L.variants[vIdx]);
   $('banner').hidden = true;
+  buildTimeline();
 }
+// ===== 階段時間軸 =====
+const CIRC = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧'];
+const profCache = new Map();
+function buildTimeline() {
+  const el = $('timeline'), v = L.free ? null : L.variants[vIdx];
+  stageIdx = -1; stageEnds = [];
+  if (!v || !v.stages) { el.hidden = true; return; }
+  const key = L.id + ':' + v.key;
+  if (!profCache.has(key)) profCache.set(key, stageProfile(L, v));
+  stageProf = profCache.get(key); stageEnds = L.stages(v);
+  const pct = (x) => Math.round(x);
+  $('tlBar').innerHTML = stageProf.map((s, i) => `<span class="seg-i" data-i="${i}" style="flex:${(s.t1 - s.t0).toFixed(3)} 1 0" title="${esc(v.stages[i].label)}"><b>${CIRC[i] || i + 1}</b></span>`).join('') + '<i class="tl-cur" id="tlCur"></i>';
+  $('tlRows').innerHTML = v.stages.map((st, i) => {
+    const s = stageProf[i];
+    return `<div class="tl-row" data-i="${i}"><span class="tl-n">${CIRC[i] || i + 1}</span><div class="tl-t"><b>${esc(st.label)}</b><span>${esc(st.note)}</span></div>
+      <div class="tl-s" aria-label="該段平均桿量"><span><i>Roll</i>${pct(s.roll)}%</span><span><i>Pitch</i>${pct(s.pitch)}%</span><span><i>Yaw</i>${pct(s.yaw)}%</span><span><i>油門</i>${pct(s.thr)}%</span></div></div>`;
+  }).join('');
+  el.hidden = false;
+}
+function updateTimeline() {
+  if (!stageEnds.length) return;
+  let i = stageEnds.findIndex((e) => t < e); if (i < 0) i = stageEnds.length - 1;
+  if (i !== stageIdx) {
+    stageIdx = i;
+    document.querySelectorAll('#tlBar .seg-i, #tlRows .tl-row').forEach((n) => n.classList.toggle('on', +n.dataset.i === i));
+  }
+  const cur = $('tlCur'); if (cur) cur.style.left = Math.min(100, t / L.dur * 100).toFixed(1) + '%';
+}
+
 function finishRun() {
   if (L.free) return;
   const v = L.variants[vIdx];
@@ -288,7 +342,7 @@ function frame(now) {
     const S = { sim, poles: L.poles, ghost, trail };
     const fpvMain = L.free && freeView === 'fpv'; // 自由練習預設 FPV 為大畫面，小畫面放第三人稱
     const mode = L.free ? 'chase' : camMode;
-    const drawChase = (cv, ratio) => { const c = sizeCanvas(cv, ratio); scene(c.ctx, viewCam(c.W, c.H, sim, mode, L.id), S, true); };
+    const drawChase = (cv, ratio) => { const c = sizeCanvas(cv, ratio); scene(c.ctx, viewCam(c.W, c.H, sim, mode, L.side), S, true); };
     const drawFpv = (cv, ratio, osd) => {
       const c = sizeCanvas(cv, ratio); scene(c.ctx, camFromBody(sim.p, sim.R, c.W, c.H, 25, 110), S, false);
       if (osd) drawOSD(c.ctx, c.W, c.H, { alt: sim.p[2], spd: Math.hypot(...sim.v), thr: sim.st.thr });
@@ -298,7 +352,9 @@ function frame(now) {
     else { drawChase(cvView, bigRatio); drawFpv($('fpv'), 16 / 9, false); }
     $('legend').hidden = fpvMain; // 推力／垂直分量／重力線在 FPV 裡看不到
     setTxt('fpvtag', fpvMain ? '第三人稱' : 'FPV 25°');
-    setTxt('phase', ctrlOut.phase || '');
+    if (!L.free) updateTimeline();
+    const stg = !L.free && L.variants[vIdx].stages && stageIdx >= 0 ? L.variants[vIdx].stages[stageIdx] : null;
+    setTxt('phase', L.free ? (ctrlOut.phase || '') : stg ? `${CIRC[stageIdx] || ''} ${stg.label}` : '');
     if (L.free) setTxt('modeTag', gpCalibrated() && !wiz ? '遙控器' : '你在飛');
     drawStick($('stL'), sim.st.yaw, sim.st.thr * 2 - 1, stickTrail.L.filter((_, i) => i % 3 === 0), true);
     drawStick($('stR'), sim.st.roll, sim.st.pitch, stickTrail.R.filter((_, i) => i % 3 === 0), false);
@@ -326,7 +382,6 @@ export function passHint(logs) {
 }
 
 const lv = (id) => progress.levels[id] || { status: 'todo', passedSim: null, passedReal: null, logs: [] };
-const isLocked = (i) => i > 0 && lv(lessonsData.levels[i - 1].id).status !== 'passed';
 
 function logRows(logs) {
   if (!logs.length) return '<div class="none">還沒有紀錄</div>';
@@ -334,13 +389,13 @@ function logRows(logs) {
     .map(({ g }) => `<div class="lg"><span class="d">${esc(g.date)}</span><span>${g.kind === 'real' ? '實機' : '模擬器'}</span><span class="r">${g.success}/${g.total}</span><span>${esc(g.note)}</span></div>`).join('');
 }
 
-function cardHTML(level, i) {
-  const p = lv(level.id), locked = isLocked(i);
+function cardHTML(level, tier) {
+  const p = lv(level.id);
   const hint = p.status !== 'passed' && passHint(p.logs);
   const demoOk = level.demo && LESSONS.some((l) => l.id === level.demo);
-  return `<details class="card${locked ? ' locked' : ''}" data-id="${esc(level.id)}"${openIds.has(level.id) ? ' open' : ''}>
-    <summary><span class="no">${String(level.order).padStart(2, '0')}</span><span class="ttl">${esc(level.title)}</span><span class="badge ${p.status}">${STATUS_LABEL[p.status]}</span>
-      <span class="dates">模擬器過關：${esc(p.passedSim || '—')} · 實機過關：${esc(p.passedReal || '—')}${locked ? ' · 前一關過關後解鎖' : ''}</span></summary>
+  return `<details class="card" data-id="${esc(level.id)}"${openIds.has(level.id) ? ' open' : ''}>
+    <summary><span class="no">${esc(level.id)}</span><span class="ttl">${esc(level.title)}</span><span class="badge ${p.status}">${STATUS_LABEL[p.status]}</span>
+      <span class="dates">建議順序 ${level.order}／${tier.levels.length} · 模擬器過關：${esc(p.passedSim || '—')} · 實機過關：${esc(p.passedReal || '—')}</span></summary>
     <div class="body">
       <div class="two">
         <div class="box"><span class="k">模擬器</span>${esc(level.sim.do)}<div class="p">過關：<b>${esc(level.sim.pass)}</b></div></div>
@@ -370,6 +425,7 @@ function renderMenu() {
   if (!lessonsData) { m.innerHTML = `<p class="err">${esc(lessonsError || '載入中…')}</p>`; return; }
   const d = lessonsData;
   m.innerHTML = `
+    <section class="guide"><h2>基本練習指引</h2><ul class="rules">${d.guide.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></section>
     <section><h2>訓練規則</h2><ul class="rules">${d.rules.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></section>
     <section class="tools">
       <button class="btn" type="button" data-act="export">匯出進度</button>
@@ -377,7 +433,7 @@ function renderMenu() {
       <input type="file" id="importFile" accept="application/json,.json" hidden>
       <span class="msg${menuMsg.bad ? ' bad' : ''}" role="status">${esc(menuMsg.text)}</span>
     </section>
-    <section class="cards">${d.levels.map(cardHTML).join('')}</section>
+    ${d.tiers.map((tier) => `<section class="tier"><h2>${esc(tier.title)}</h2><p class="intro">${esc(tier.intro)}</p><div class="cards">${tier.levels.map((lv) => cardHTML(lv, tier)).join('')}</div></section>`).join('')}
     <section class="weekly"><h2>每週檢討</h2><ul>${d.weekly.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></section>`;
 }
 
@@ -393,7 +449,7 @@ $('menu').addEventListener('toggle', (e) => {
 $('menu').addEventListener('click', async (e) => {
   const b = e.target.closest('button[data-act]'); if (!b || b.type === 'submit') return;
   const act = b.dataset.act, card = b.closest('.card'), id = card?.dataset.id;
-  if (act === 'demo') { setPage('class', lessonsData.levels.find((x) => x.id === id).demo); return; }
+  if (act === 'demo') { setPage('class', allLevels.find((x) => x.id === id).demo); return; }
   if (act === 'export') {
     const url = URL.createObjectURL(new Blob([store.exportJSON()], { type: 'application/json' }));
     const a = Object.assign(document.createElement('a'), { href: url, download: `fpv-trainer-progress-${today()}.json` });
@@ -451,9 +507,10 @@ async function init() {
     const res = await fetch('data/lessons.json', { cache: 'no-cache' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     lessonsData = await res.json();
-    const order = lessonsData.levels.filter((x) => x.demo).sort((a, b) => a.order - b.order).map((x) => LESSONS.find((l) => l.id === x.demo)).filter(Boolean);
+    allLevels = lessonsData.tiers.flatMap((tier) => tier.levels);
+    applyContent(lessonsData);
+    const order = allLevels.filter((x) => x.demo).map((x) => LESSONS.find((l) => l.id === x.demo)).filter(Boolean);
     if (order.length) CLASS = order;
-    lessonsData.levels.sort((a, b) => a.order - b.order);
   } catch (err) {
     lessonsError = '無法載入 data/lessons.json（' + err.message + '）。請用 http 伺服器開啟（python3 -m http.server），不要直接點開檔案。';
   }

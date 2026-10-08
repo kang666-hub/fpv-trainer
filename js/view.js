@@ -86,6 +86,11 @@ function drawDrone(ctx, cam, sim) {
   const L0 = 1.3, Lt = sim.st.thr / HOVER * L0;
   line(ctx, cam, p, V.add(p, V.mul(zb, Lt)), '#ff6a1f', 3);
   line(ctx, cam, p, V.add(p, [0, 0, Lt * zb[2]]), '#3fd0e0', 3);
+  // 水平分力（紫）：推力投影到水平面；虛線把推力、垂直分力、水平分力連成平行四邊形
+  const tip = V.add(p, V.mul(zb, Lt)), vt = V.add(p, [0, 0, Lt * zb[2]]), ht = V.add(p, [Lt * zb[0], Lt * zb[1], 0]);
+  line(ctx, cam, p, ht, '#b78cff', 3);
+  poly(ctx, cam, [tip, vt], 'rgba(255,255,255,0.3)', 1, [3, 3]);
+  poly(ctx, cam, [tip, ht], 'rgba(255,255,255,0.3)', 1, [3, 3]);
   const tick = V.add(p, [0, 0, L0]), hd = V.norm(V.cross([0, 0, 1], cam.f).map((v) => v || 0.001));
   line(ctx, cam, V.add(tick, V.mul(hd, -0.28)), V.add(tick, V.mul(hd, 0.28)), '#ffffff', 2);
 }
@@ -105,11 +110,8 @@ export function scene(ctx, cam, S, withDrone) {
   if (withDrone) drawDrone(ctx, cam, sim);
   poles.filter((o) => o.z < dz).sort((a, b) => b.z - a.z).forEach((o) => drawPole(ctx, cam, o.pp));
 }
-const SIDE = {
-  line: { follow: [-2, -11, 4] }, turn: { pos: [-15, -17, 11], look: [0, 0, 2] }, orbit: { pos: [-8, -10, 6.5], look: [0, 0, 2] },
-  s: { pos: [-2, -17, 9], look: [0, 0, 1.5] }, split: { follow: [3, -19, 4] }, inv: { follow: [0, -9, 1] }, free: { follow: [-3, -12, 5] },
-};
-export function viewCam(W, H, sim, mode, lessonId) {
+// 旁觀鏡頭設定在各示範的 side 欄位（{follow:[...]} 跟隨 或 {pos, look} 固定）；自由練習只用追尾
+export function viewCam(W, H, sim, mode, side) {
   if (mode === 'chase') {
     const v = [sim.v[0], sim.v[1], 0], sp = V.len(v); const xb = M.col(sim.R, 0);
     let h = sp > 1.5 ? V.norm(v) : V.norm([xb[0], xb[1], 0.0001]);
@@ -119,7 +121,7 @@ export function viewCam(W, H, sim, mode, lessonId) {
     chase.c = V.add(V.mul(chase.c, 0.88), V.mul(target, 0.12));
     return makeCam(chase.c, V.add(sim.p, V.mul(chase.h, 1.5)), W, H, 62);
   }
-  const s = SIDE[lessonId];
+  const s = side || { follow: [-3, -12, 5] };
   if (s.follow) { if (!chase) chase = { c: V.add(sim.p, s.follow) }; chase.c = V.add(V.mul(chase.c, 0.9), V.mul(V.add(sim.p, s.follow), 0.1)); return makeCam(chase.c, V.add(chase.c, V.mul(s.follow, -1)), W, H, 58); }
   return makeCam(s.pos, s.look, W, H, 58);
 }
