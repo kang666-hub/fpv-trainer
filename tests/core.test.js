@@ -29,7 +29,8 @@ test('所有「飛法」變體全程不觸地', () => {
   for (const L of LESSONS) for (const v of L.variants) {
     if (jsonVariant(L.id, v.key).kind !== 'style') continue;
     const r = runDemo(L, v);
-    assert.equal(r.touched, false, `${L.id}/${v.key} 觸地（最低 ${Math.min(...zs(r)).toFixed(2)} m）`);
+    // S1 從地面起步，停在地面不算觸地：以 crashed 判定；其他示範維持「z ≤ 0 即觸地」
+    assert.equal(L.id === 'S1' ? r.crashed : r.touched, false, `${L.id}/${v.key} 觸地（最低 ${Math.min(...zs(r)).toFixed(2)} m）`);
   }
 });
 
@@ -202,14 +203,19 @@ test('入門 S1–S5：每個變體（含對照）全程不觸地，且共 14 �
   assert.equal(S.reduce((n, l) => n + l.variants.length, 0), 14);
   for (const L of S) for (const v of L.variants) {
     const r = runDemo(L, v);
-    assert.equal(r.touched, false, `${L.id}/${v.key} 觸地（最低 ${Math.min(...zs(r)).toFixed(2)} m）`);
+    assert.equal(L.id === 'S1' ? r.crashed : r.touched, false, `${L.id}/${v.key} 觸地（最低 ${Math.min(...zs(r)).toFixed(2)} m）`);
   }
 });
 
-test('S1：懸停不變、低於懸停下降、高於懸停上升', () => {
-  const z = (k) => { const r = run('S1', k); return r.rec.at(-1).p[2] - r.rec[0].p[2]; };
-  assert.ok(Math.abs(z('hover')) < 0.01);
-  assert.ok(z('low') < -3 && z('high') > 3);
+test('S1 takeoff：從地面起飛，最高點 2–3.5m，最後 1 秒高度變化 < 0.1m，不觸地；under 一直停在地面；over 一路上升', () => {
+  const t = run('S1', 'takeoff'), z = zs(t), tail = t.rec.filter((x) => x.t >= t.rec.at(-1).t - 1).map((x) => x.p[2]);
+  assert.equal(t.rec[0].p[2], 0); assert.equal(t.crashed, false);
+  assert.ok(Math.max(...z) >= 2 && Math.max(...z) <= 3.5, `最高點 ${Math.max(...z).toFixed(2)} m`);
+  assert.ok(Math.max(...tail) - Math.min(...tail) < 0.1, '最後 1 秒高度變化過大');
+  const u = run('S1', 'under');
+  assert.equal(u.crashed, false); assert.ok(zs(u).every((x) => x === 0), 'under 應全程停在地面');
+  const o = run('S1', 'over');
+  assert.ok(o.rec.at(-1).p[2] > t.rec.at(-1).p[2] + 2, 'over 沒有比 takeoff 高 2m 以上');
 });
 
 test('S2／S3「推一下」：脈衝結束後 1 秒傾角變化 < 1°；水平速度持續增加；高度下降', () => {
@@ -247,5 +253,6 @@ test('S5：每個變體的 relates 指向存在的關卡或為 null；入門每�
     assert.ok('relates' in v, `S5/${v.key} 缺 relates`);
     assert.ok(v.relates === null || ids.has(v.relates), `S5/${v.key}.relates=${v.relates}`);
   }
+  assert.equal(jsonVariant('S5', 'rt').relates, 'B3');
   for (const lv of data.tiers[0].levels) for (const v of lv.variants) assert.ok(v.stages.length >= 2 && v.stages.length <= 4, `${lv.id}/${v.key} 階段數 ${v.stages.length}`);
 });

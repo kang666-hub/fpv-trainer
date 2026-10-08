@@ -371,14 +371,27 @@ function pulseTo(mem, ang) {
   return st;
 }
 
-// S1 油門：機身水平，推力全是垂直分力，油門決定升降
+// S1 油門：從地面起飛。地面當地板（groundHold，沿用自由練習），推力 > 重力才離地；離地後回到懸停還要先收一下把上升速度煞住
+const S1_T = { ground: 0.8, up: 0.55, down: 0.3, climbTo: 1.5 };
 const S1 = {
-  id: 'S1', dur: 4, cam: 'side', side: { follow: [3, -11, 1] },
-  variants: [{ key: 'hover', thr: HOVER, z0: 22 }, { key: 'low', thr: 0.3, z0: 22 }, { key: 'high', thr: 0.55, z0: 22 }],
-  start: (sim, v) => startAir(sim, (v && v.z0) || 22),
-  ctrl: (v, sim, t) => ({ thr: t < 1 ? HOVER : v.thr, roll: 0, pitch: 0, yaw: 0, phase: null }),
+  id: 'S1', dur: 7, cam: 'side', side: { follow: [3, -11, 1] },
+  variants: [{ key: 'takeoff' }, { key: 'under', thr: 0.35 }, { key: 'over' }],
+  start: (sim) => { sim.reset([0, 0, 0], [0, 0, 0], yawOnly(0)); sim.st = { thr: 0, yaw: 0, pitch: 0, roll: 0 }; sim.groundHold = true; },
+  ctrl: (v, sim, t, mem) => {
+    const m = (mem.marks = mem.marks || {}), c = (thr) => ({ thr, roll: 0, pitch: 0, yaw: 0, phase: null });
+    if (t < S1_T.ground) return c(0);                                            // ① 停在地面
+    if (v.key === 'under') return c(v.thr);                                      // 對照：推力 < 重力，起不來
+    if (v.key === 'over') return c(S1_T.up);                                     // 對照：油門一直維持 55%
+    if (!m.brake) { if (sim.p[2] >= S1_T.climbTo) m.brake = t; else return c(S1_T.up); }   // ② 高於懸停，離地上升
+    if (!m.hover) { if (sim.v[2] <= 0.02) m.hover = t; else return c(S1_T.down); }          // ③ 短暫收到懸停以下，煞住上升速度
+    return c(HOVER);                                                             // ④ 回到懸停，停在空中
+  },
   ghost: () => [],
-  stages: () => [1, 2.5, 4],
+  stages: (v) => {
+    if (v.key !== 'takeoff') return [S1_T.ground, 7];
+    const m = probe(S1, v).mem.marks;
+    return [S1_T.ground, m.brake, m.hover, 7];
+  },
 };
 
 // S2／S3 Pitch、Roll：桿量是「轉動速度」，放開就停在當下角度
