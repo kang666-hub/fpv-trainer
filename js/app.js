@@ -44,8 +44,8 @@ const CH = [
   { k: 'ROLL', name: 'Roll', key: 'roll', rate: 500 },
 ];
 $('chs').innerHTML = CH.map((c) => `<div class="ch" id="ch_${c.key}"><span class="k">${c.k}</span><div class="track">${c.uni ? `<span class="hov" style="left:${HOVER * 100}%"></span>` : '<span class="mid"></span>'}<span class="fill" id="f_${c.key}"></span></div><span class="v" id="v_${c.key}"></span></div>`).join('');
-const TELE = [['alt', '高度', 'm'], ['vz', '垂直速度', 'm/s'], ['spd', '速度', ''], ['pit', '前傾', '°'], ['rol', '滾轉', '°'], ['hdg', '航向', '°']];
-$('tele').innerHTML = TELE.map(([id, k, u]) => `<div class="t"><div class="k">${k}</div><div class="v"><span id="t_${id}">0</span><small>${u}</small></div></div>`).join('');
+const TELE = [['alt', '高度', 'm'], ['vz', '垂直速度', 'm/s'], ['spd', '速度', 'm/s'], ['pit', '前傾', '°'], ['rol', '滾轉', '°'], ['hdg', '航向', '°']];
+$('tele').innerHTML = TELE.map(([id, k, u]) => `<div class="t"><div class="k">${k}</div><div class="v"><span id="t_${id}">0</span><small>${u}</small></div>${id === 'spd' ? '<div class="sub" id="t_kmh">0 km/h</div>' : ''}</div>`).join('');
 
 // ===== 教室 UI =====
 const shortTitle = (s) => String(s).replace(/（.*?）/g, '');
@@ -338,7 +338,7 @@ function updatePanel() {
     else { const a = Math.min(v, 0), b = Math.max(v, 0); f.style.left = (50 + a * 50).toFixed(1) + '%'; f.style.width = ((b - a) * 50).toFixed(1) + '%'; if (!locked) setTxt('v_' + ch.key, `${(v * 100).toFixed(0)}% ${(v * ch.rate * sim.rateScale).toFixed(0)}°/s`); }
   }
   const e = euler(sim.R);
-  setTxt('t_alt', sim.p[2].toFixed(1)); setTxt('t_vz', sim.v[2].toFixed(1)); { const sp = Math.hypot(...sim.v); setTxt('t_spd', `${sp.toFixed(1)} m/s · ${(sp * 3.6).toFixed(0)} km/h`); }
+  setTxt('t_alt', sim.p[2].toFixed(1)); setTxt('t_vz', sim.v[2].toFixed(1)); { const sp = Math.hypot(...sim.v); setTxt('t_spd', sp.toFixed(1)); setTxt('t_kmh', `${(sp * 3.6).toFixed(0)} km/h`); }
   setTxt('t_pit', e.pitch.toFixed(0)); setTxt('t_rol', e.roll.toFixed(0)); setTxt('t_hdg', ((-e.yaw + 360) % 360).toFixed(0));
 }
 
