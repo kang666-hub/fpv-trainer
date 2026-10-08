@@ -138,8 +138,8 @@ const B2 = {
 const B3_P = { T0: 1.0, R: 7, V: 7, z: 3, ang: 1.5 * Math.PI };
 const B3_ON = { pitch: 0.4, yaw: 0.8, thr: 1.2 }; // 相對進彎時間
 // 大坡度側飛過彎：V=10、R=4.8 → 向心加速度 V²/R ≈ 2.1g，坡度 atan(2.1) ≈ 65°、油門約 95%。坡度大，轉彎靠 Pitch 拉，Yaw 反而少
-const B3_STEEP = { T0: 1.0, R: 4.8, V: 10, z: 3, ang: 1.5 * Math.PI, softA: true, rt: 0.25 };
-const B3_STEEP_ON = { pitch: 0.05, yaw: 0.1, thr: 0.12 };
+const B3_STEEP = { T0: 1.0, R: 4.8, V: 10, z: 4, ang: 1.5 * Math.PI, softA: true, rt: 0.1 };
+const B3_STEEP_ON = { pitch: 0.3, yaw: 0.6, thr: 0 }; // Roll 與油門同時開始（thr: 0 = 一進彎就給），Pitch 晚 0.3 秒，Yaw 再晚 0.3 秒
 // 對照：坡度 80° 撐不住。用腳本固定坡度（不用追蹤控制器），油門全開，垂直分力只有 cos80° × 2.5 ≈ 0.43 倍重力
 const B3_OVER = { T0: 1.0, bank: 80, z0: 6, V: 10 };
 const tcOf3 = (P) => P.ang / (P.V / P.R);
@@ -171,8 +171,10 @@ const B3 = {
     if (t < T0) { mem.thr0 = c.thr; return c; }
     if (!exit) {
       if (rel < on.pitch) c.pitch = 0;
+      if (v.P && rel < on.pitch) c.roll = clamp((-65 - euler(sim.R).roll) / 8, -1, 1); // steep 的 Roll 段：直接打到約 65° 就停，不過頭（過頭的坡度會讓垂直分力多掉一截）
       if (rel < on.yaw) c.yaw = 0;
       if (rel < thrOn) c.thr = mem.thr0;
+      if (v.P && rel < 0.6) c.thr = Math.max(c.thr, clamp(HOVER / Math.max(0.3, sim.R[8]), 0, 1)); // steep：油門跟著 Roll 同時補，傾多少補多少，垂直分力才不會先掉
     } else if (!isFinite(thrOn)) c.thr = mem.thr0;
     return c;
   },
@@ -180,6 +182,7 @@ const B3 = {
   stages: (v) => {
     if (v.over) return [B3_OVER.T0, B3_OVER.T0 + 0.3, 8];
     const P = v.P || B3_P, on = v.on || B3_ON;
+    if (v.P) return [P.T0, P.T0 + on.pitch, P.T0 + on.yaw, P.T0 + on.yaw + 0.3, P.T0 + tcOf3(P), 8]; // steep：進場／Roll＋油門／Pitch／Yaw／持續轉彎／出彎
     return [P.T0, P.T0 + on.pitch, P.T0 + on.yaw, P.T0 + on.thr, P.T0 + tcOf3(P), 8];
   },
 };

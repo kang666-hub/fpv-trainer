@@ -76,18 +76,23 @@ test('B3 飛法：Roll 桿量 > 5% 的時間 < Pitch < Yaw', () => {
   assert.ok(tr < tp && tp < ty, `順序不對：Roll ${tr}, Pitch ${tp}, Yaw ${ty}`);
 });
 
-test('B3 steep：彎中平均坡度 60–68°、全程高度變化 < 0.5m、Roll→Pitch→Yaw 首次出現順序照舊、彎中平均 |Pitch| > |Yaw|；toosteep 1.5 秒內掉高 ≥ 2m', () => {
-  const r = run('B3', 'steep'), on = (ch) => r.rec.find((x) => Math.abs(x[ch]) > 0.05)?.t;
+test('B3 steep：Roll＋油門同時 → Pitch → Yaw（各晚 ≥ 0.25 秒）；最低高度 ≥ 進場 − 0.5m、最後高度差 < 0.5m；彎中平均坡度 60–68°、|Pitch| > |Yaw|；toosteep 1.5 秒內掉高 ≥ 2m', () => {
+  const r = run('B3', 'steep'), on = (ch) => r.rec.find((x) => Math.abs(x[ch]) > 0.05)?.t, T0 = 1.0;
+  const thr0 = r.rec.find((x) => x.t >= T0 - 0.01).thr, tThr = r.rec.find((x) => x.t >= T0 && x.thr > thr0 + 0.05)?.t; // 油門「補上去」＝比進彎前高 5% 以上
   const [tr, tp, ty] = ['roll', 'pitch', 'yaw'].map(on);
-  assert.ok(tr < tp && tp < ty, `順序不對：Roll ${tr}, Pitch ${tp}, Yaw ${ty}`);
-  const T0 = 1.0, Tc = 1.5 * Math.PI / (10 / 4.8), turn = r.rec.filter((x) => x.t >= T0 + 0.5 && x.t < T0 + Tc);
+  assert.ok(Math.abs(tr - tThr) <= 0.05, `Roll ${tr} 與油門 ${tThr} 相差 ${Math.abs(tr - tThr).toFixed(3)} 秒`);
+  assert.ok(tp - tr >= 0.25, `Pitch 只比 Roll 晚 ${(tp - tr).toFixed(3)} 秒`);
+  assert.ok(ty - tp >= 0.25, `Yaw 只比 Pitch 晚 ${(ty - tp).toFixed(3)} 秒`);
+  const z = zs(r), z0 = z[0];
+  assert.ok(Math.min(...z) >= z0 - 0.5, `最低高度 ${Math.min(...z).toFixed(2)} m（進場 ${z0}）`);
+  assert.ok(Math.abs(z.at(-1) - z0) < 0.5, `最後高度 ${z.at(-1).toFixed(2)} m`);
+  const Tc = 1.5 * Math.PI / (10 / 4.8), turn = r.rec.filter((x) => x.t >= T0 + 0.5 && x.t < T0 + Tc);
   const avg = (f) => turn.reduce((s, x) => s + f(x), 0) / turn.length;
   const bank = avg((x) => Math.abs(euler(x.R).roll));
   assert.ok(bank >= 60 && bank <= 68, `彎中平均坡度 ${bank.toFixed(1)}°`);
-  assert.ok(Math.max(...zs(r)) - Math.min(...zs(r)) < 0.5, `高度變化 ${(Math.max(...zs(r)) - Math.min(...zs(r))).toFixed(2)} m`);
   assert.ok(avg((x) => Math.abs(x.pitch)) > avg((x) => Math.abs(x.yaw)), 'Pitch 應大於 Yaw');
-  const c = run('B3', 'toosteep'), z0 = c.rec.find((x) => x.t >= 1.0).p[2], z15 = c.rec.find((x) => x.t >= 2.5).p[2];
-  assert.ok(z0 - z15 >= 2, `1.5 秒只掉 ${(z0 - z15).toFixed(2)} m`);
+  const c = run('B3', 'toosteep'), zc0 = c.rec.find((x) => x.t >= 1.0).p[2], zc15 = c.rec.find((x) => x.t >= 2.5).p[2];
+  assert.ok(zc0 - zc15 >= 2, `1.5 秒只掉 ${(zc0 - zc15).toFixed(2)} m`);
 });
 
 test('B4：飛法 A 坡度 ≤ 15° 且航向變化 ≥ 90°；飛法 B 坡度 30–45°；對照航向轉 ≥ 90° 但路線方向變化 < 30°', () => {
