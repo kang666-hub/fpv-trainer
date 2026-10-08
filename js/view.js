@@ -82,6 +82,8 @@ function drawDrone(ctx, cam, sim) {
     poly(ctx, cam, pts, front ? '#ff6a1f' : '#aab2bb', 2);
   }
   line(ctx, cam, at(0.05, 0, 0.04), at(0.55, 0, 0.12), '#ff6a1f', 2.5); // 鏡頭方向
+  // 機身上方：固定長度的半透明細線，油門歸零（推力箭頭消失）或倒置時也看得出機身朝向
+  line(ctx, cam, p, V.add(p, V.mul(zb, 0.6)), 'rgba(255,214,170,0.5)', 2);
   // 推力與垂直分量
   const L0 = 1.3, Lt = sim.st.thr / HOVER * L0;
   line(ctx, cam, p, V.add(p, V.mul(zb, Lt)), '#ff6a1f', 3);
