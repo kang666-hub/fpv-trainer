@@ -118,7 +118,7 @@ test('lessons.json v2：必填欄位齊全，variant kind 只能是 style／cont
   assert.equal(data.version, 2);
   for (const k of ['guide', 'rules', 'weekly']) assert.ok(Array.isArray(data[k]) && data[k].length > 0, k);
   assert.ok(data.free && data.free.title && data.free.notes.length > 0);
-  assert.deepEqual(data.tiers.map((t) => t.id), ['basic', 'advanced']);
+  assert.deepEqual(data.tiers.map((t) => t.id), ['intro', 'basic', 'advanced']);
   const demoIds = new Set(LESSONS.map((l) => l.id)), ids = new Set();
   const nonEmpty = (s) => typeof s === 'string' && s.trim().length > 0;
   for (const tier of data.tiers) {
@@ -142,6 +142,65 @@ test('lessons.json v2：必填欄位齊全，variant kind 只能是 style／cont
       }
     });
   }
-  assert.deepEqual(data.tiers[0].levels.map((l) => l.id), ['B1', 'B2', 'B3', 'B4', 'B5']);
-  assert.deepEqual(data.tiers[1].levels.map((l) => l.id), ['A1', 'A2', 'A3', 'A4', 'A5']);
+  assert.deepEqual(data.tiers[0].levels.map((l) => l.id), ['S1', 'S2', 'S3', 'S4', 'S5']);
+  assert.deepEqual(data.tiers[1].levels.map((l) => l.id), ['B1', 'B2', 'B3', 'B4', 'B5']);
+  assert.deepEqual(data.tiers[2].levels.map((l) => l.id), ['A1', 'A2', 'A3', 'A4', 'A5']);
+});
+
+// ===== 入門 S1–S5 =====
+const tiltOf = (x) => Math.acos(Math.max(-1, Math.min(1, x.R[8]))) * 180 / Math.PI;
+const after = (r, t0) => r.rec.filter((x) => x.t >= t0);
+
+test('入門 S1–S5：每個變體（含對照）全程不觸地，且共 14 個變體（spec 寫 13，依表格實為 3+3+3+1+4）', () => {
+  const S = LESSONS.filter((l) => /^S\d$/.test(l.id));
+  assert.equal(S.length, 5);
+  assert.equal(S.reduce((n, l) => n + l.variants.length, 0), 14);
+  for (const L of S) for (const v of L.variants) {
+    const r = runDemo(L, v);
+    assert.equal(r.touched, false, `${L.id}/${v.key} 觸地（最低 ${Math.min(...zs(r)).toFixed(2)} m）`);
+  }
+});
+
+test('S1：懸停不變、低於懸停下降、高於懸停上升', () => {
+  const z = (k) => { const r = run('S1', k); return r.rec.at(-1).p[2] - r.rec[0].p[2]; };
+  assert.ok(Math.abs(z('hover')) < 0.01);
+  assert.ok(z('low') < -3 && z('high') > 3);
+});
+
+test('S2／S3「推一下」：脈衝結束後 1 秒傾角變化 < 1°；水平速度持續增加；高度下降', () => {
+  for (const [id, hv] of [['S2', (x) => x.v[0]], ['S3', (x) => -x.v[1]]]) for (const key of ['a15', 'a45']) {
+    const r = run(id, key), tEnd = 1.0 + 0.6, seg = after(r, tEnd), t1 = seg.filter((x) => x.t <= tEnd + 1);
+    const tilt = t1.map(tiltOf);
+    assert.ok(Math.max(...tilt) - Math.min(...tilt) < 1, `${id}/${key} 傾角變化 ${(Math.max(...tilt) - Math.min(...tilt)).toFixed(2)}°`);
+    assert.ok(hv(seg.at(-1)) > hv(seg[0]) + 1, `${id}/${key} 水平速度沒有持續增加`);
+    assert.ok(seg.at(-1).p[2] < seg[0].p[2], `${id}/${key} 高度沒有下降`);
+    const want = key === 'a15' ? 15 : 45;
+    assert.ok(Math.abs(tiltOf(seg[0]) - want) < 2, `${id}/${key} 停在 ${tiltOf(seg[0]).toFixed(1)}°`);
+  }
+});
+
+test('S2／S3「一直推著」：累計轉動角 > 180°', () => {
+  for (const id of ['S2', 'S3']) {
+    const r = run(id, 'hold'); let acc = 0;
+    const key = id === 'S2' ? 'pitch' : 'roll';
+    for (const x of r.rec) acc += Math.abs(x[key]) * 500 * (1 / 240);
+    assert.ok(acc > 180, `${id} 累計 ${acc.toFixed(0)}°`);
+  }
+});
+
+test('S4：航向變化 ≥ 90°，水平位置偏移 < 0.3 m，高度變化 < 0.2 m', () => {
+  const r = run('S4', 'yaw30');
+  assert.ok(headingChange(r) >= 90, `航向 ${headingChange(r).toFixed(0)}°`);
+  const hz = Math.max(...r.rec.map((x) => Math.hypot(x.p[0] - r.rec[0].p[0], x.p[1] - r.rec[0].p[1])));
+  assert.ok(hz < 0.3, `位置偏移 ${hz.toFixed(2)} m`);
+  assert.ok(Math.max(...zs(r)) - Math.min(...zs(r)) < 0.2, '高度變化過大');
+});
+
+test('S5：每個變體的 relates 指向存在的關卡或為 null；入門每個變體都有 2–4 段 stages', () => {
+  const ids = new Set(jsonLevels.map((l) => l.id));
+  for (const v of jsonLevels.find((l) => l.id === 'S5').variants) {
+    assert.ok('relates' in v, `S5/${v.key} 缺 relates`);
+    assert.ok(v.relates === null || ids.has(v.relates), `S5/${v.key}.relates=${v.relates}`);
+  }
+  for (const lv of data.tiers[0].levels) for (const v of lv.variants) assert.ok(v.stages.length >= 2 && v.stages.length <= 4, `${lv.id}/${v.key} 階段數 ${v.stages.length}`);
 });

@@ -11,7 +11,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 // ===== 狀態 =====
 const sim = new Sim();
 let lessonsData = null, lessonsError = '', progress = { version: 2, levels: {} };
-let allLevels = [];                  // lessons.json 所有關卡（基礎＋進階）攤平
+let allLevels = [];                  // lessons.json 所有關卡（入門＋基礎＋進階）攤平
 let stageEnds = [], stageProf = [], stageIdx = -1;
 let CLASS = LESSONS;                 // 教室課程順序（讀到 lessons.json 後依關卡順序排）
 let page = 'class';
@@ -29,7 +29,7 @@ function applyContent(data) {
   for (const tier of data.tiers) for (const lv of tier.levels) {
     const l = LESSONS.find((x) => x.id === lv.demo); if (!l) continue;
     Object.assign(l, { title: lv.title, notes: lv.notes, watch: lv.watch, tier: tier.id, levelId: lv.id });
-    for (const v of l.variants) { const jv = lv.variants.find((x) => x.key === v.key); if (jv) Object.assign(v, { kind: jv.kind, label: jv.label, stages: jv.stages }); }
+    for (const v of l.variants) { const jv = lv.variants.find((x) => x.key === v.key); if (jv) Object.assign(v, { kind: jv.kind, label: jv.label, stages: jv.stages, relates: jv.relates ?? null }); }
   }
   if (data.free) Object.assign(FREE, { title: data.free.title, notes: data.free.notes, watch: data.free.watch });
 }
@@ -48,7 +48,7 @@ $('tele').innerHTML = TELE.map(([id, k, u]) => `<div class="t"><div class="k">${
 // ===== 教室 UI =====
 const shortTitle = (s) => String(s).replace(/（.*?）/g, '');
 function buildTabs() {
-  const TIER = { basic: '基礎', advanced: '進階' };
+  const TIER = { intro: '入門', basic: '基礎', advanced: '進階' };
   let prev = '';
   $('tabs').innerHTML = CLASS.map((l, i) => {
     const head = l.tier !== prev ? `<span class="tg">${TIER[l.tier] || ''}</span>` : ''; prev = l.tier;
@@ -100,7 +100,15 @@ function restart() {
   stats = { minz: sim.p[2], maxz: sim.p[2], z0: sim.p[2], crashed: false };
   ghost = L.free ? [] : L.ghost(L.variants[vIdx]);
   $('banner').hidden = true;
-  buildTimeline();
+  buildTimeline(); buildRelates();
+}
+// S5 組合對應的完整動作：「完整動作 → B1 直線控高」按鈕，按下切到該關示範
+function buildRelates() {
+  const el = $('relates'), v = L.free ? null : L.variants[vIdx], lvl = v && v.relates ? allLevels.find((x) => x.id === v.relates) : null, target = lvl && CLASS.find((l) => l.id === lvl.demo);
+  if (!target) { el.hidden = true; el.innerHTML = ''; return; }
+  el.innerHTML = `<button class="btn" type="button">完整動作 → ${esc(lvl.id)} ${esc(shortTitle(lvl.title))}</button>`;
+  el.querySelector('button').onclick = () => selectLesson(target);
+  el.hidden = false;
 }
 // ===== 階段時間軸 =====
 const CIRC = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧'];

@@ -175,3 +175,5 @@ header .sub{flex:1 1 260px}
 .guide{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:10px;padding:12px 14px;display:grid;gap:6px}
 .tier{display:grid;gap:8px}
 .tier .intro{margin:0;color:var(--muted);font-size:13px;max-width:72ch}
+.relates{margin-top:10px}
+.relates[hidden]{display:none}

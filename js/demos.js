@@ -274,7 +274,82 @@ const A4 = {
   stages: () => [0.8, 1.5, 1.86, 2.31, 2.67, 6],
 };
 
-export const LESSONS = [B1, B2, B3, B4, B5, A1, A2, A3, A4];
+// ===== 入門 S1–S5：單桿拆解 → 雙桿組合 =====
+// 示範一律從空中開始（高度夠每個變體全程不觸地）。桿量脈衝以「累計角度」收尾，角度才準。
+const startAir = (sim, z, v = [0, 0, 0], R = yawOnly(0)) => { sim.reset([0, 0, z], v, R); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; };
+const S_STICK = 0.6; // 「推一下」的桿量（滿桿的 60%）
+// 把某一軸轉過 ang 度：回傳這一步該打的桿量（0～S_STICK），轉完回 0
+function pulseTo(mem, ang) {
+  mem.acc = mem.acc || 0;
+  const st = Math.min(S_STICK, Math.max(0, (ang - mem.acc) / (500 * DT)));
+  mem.acc += st * 500 * DT;
+  return st;
+}
+
+// S1 油門：機身水平，推力全是垂直分力，油門決定升降
+const S1 = {
+  id: 'S1', dur: 4, cam: 'side', side: { follow: [3, -11, 1] },
+  variants: [{ key: 'hover', thr: HOVER, z0: 22 }, { key: 'low', thr: 0.3, z0: 22 }, { key: 'high', thr: 0.55, z0: 22 }],
+  start: (sim, v) => startAir(sim, (v && v.z0) || 22),
+  ctrl: (v, sim, t) => ({ thr: t < 1 ? HOVER : v.thr, roll: 0, pitch: 0, yaw: 0, phase: null }),
+  ghost: () => [],
+  stages: () => [1, 2.5, 4],
+};
+
+// S2／S3 Pitch、Roll：桿量是「轉動速度」，放開就停在當下角度
+const sTilt = (id, axis, follow) => ({
+  id, dur: 4.5, cam: 'side', side: { follow },
+  variants: [{ key: 'a15', ang: 15, z0: 20 }, { key: 'a45', ang: 45, z0: 20 }, { key: 'hold', hold: true, z0: 45 }],
+  start: (sim, v) => startAir(sim, (v && v.z0) || 20),
+  ctrl: (v, sim, t, mem) => {
+    const c = { thr: HOVER, roll: 0, pitch: 0, yaw: 0, phase: null };
+    if (t >= 1) c[axis] = v.hold ? 0.5 : pulseTo(mem, v.ang);
+    return c;
+  },
+  ghost: () => [],
+  stages: (v) => (v.hold ? [1, 2, 4.5] : [1, 1.6, 4.5]),
+});
+const S2 = sTilt('S2', 'pitch', [3, -11, 2]);
+const S3 = sTilt('S3', 'roll', [-11, -3, 2]);
+
+// S4 Yaw：懸停中打 Yaw，機身原地轉，推力方向不變
+const S4 = {
+  id: 'S4', dur: 5, cam: 'side', side: { follow: [0, -8, 3] },
+  variants: [{ key: 'yaw30', z0: 10 }],
+  start: (sim, v) => startAir(sim, (v && v.z0) || 10),
+  ctrl: (v, sim, t) => ({ thr: HOVER, roll: 0, pitch: 0, yaw: t >= 1 && t < 4 ? 0.3 : 0, phase: null }),
+  ghost: () => [],
+  stages: () => [1, 4, 5],
+};
+
+// S5 雙桿組合
+const S5_TURN = { T0: 1.0, R: 7, V: 7, z: 12, ang: Math.PI };
+const S5_FLAT = { ...B4_A, z: 12 };
+const S5 = {
+  id: 'S5', dur: 7, cam: 'chase', side: { follow: [-9, -6, 3] },
+  variants: [{ key: 'pt', z0: 12 }, { key: 'rt', z0: 12 }, { key: 'rp' }, { key: 'py' }],
+  start: (sim, v) => {
+    const k = (v && v.key) || 'pt';
+    if (k === 'rp') startFromRef(sim, (t) => refTurn(t, S5_TURN));
+    else if (k === 'py') startFromRef(sim, (t) => refTurn(t, S5_FLAT));
+    else startAir(sim, 12);
+  },
+  ctrl: (v, sim, t, mem) => {
+    if (v.key === 'rp') return { ...track(sim, refTurn(t, S5_TURN)), yaw: 0, phase: null }; // 只用 Roll＋Pitch＋油門
+    if (v.key === 'py') return { ...track(sim, followNose(sim, refTurn(t, S5_FLAT), mem, S5_FLAT.k)), phase: null }; // 平轉：Pitch＋Yaw 為主，Roll 平均只有幾 %
+    const axis = v.key === 'pt' ? 'pitch' : 'roll', c = { thr: HOVER, roll: 0, pitch: 0, yaw: 0, phase: null };
+    // 1 秒起傾 20°；3.5 秒起轉回平。傾角靠累計角度收尾，油門跟著傾角補（垂直分力 = 重力）
+    mem.acc = mem.acc || 0; mem.back = mem.back || 0;
+    if (t >= 1 && t < 3.5) { const st = pulseTo(mem, 20); c[axis] = st; }
+    else if (t >= 3.5) { const st = Math.min(S_STICK, Math.max(0, (20 - mem.back) / (500 * DT))); mem.back += st * 500 * DT; c[axis] = -st; }
+    c.thr = clamp(HOVER / Math.max(0.3, sim.R[8]), 0, 1);
+    return c;
+  },
+  ghost: () => [],
+  stages: () => [1, 3.5, 7],
+};
+
+export const LESSONS = [S1, S2, S3, S4, S5, B1, B2, B3, B4, B5, A1, A2, A3, A4];
 
 function startFromRef(sim, ref) { const r = ref(0); sim.reset(r.p, r.v, attFor(r)); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; }
 
