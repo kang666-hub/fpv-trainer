@@ -3,6 +3,7 @@ import { Sim, HOVER, yawOnly, euler } from './core.js';
 import { LESSONS, FREE, lessonStart, lessonCtrl, stageProfile } from './demos.js';
 import { scene, viewCam, camFromBody, sizeCanvas, drawStick, drawAlt, drawOSD, resetChase } from './view.js';
 import * as store from './progress.js';
+import { CHANNELS, normChannels, applyChannels, freeStart } from './free.js';
 import { createGamepadInput, shapeSticks, detectAxis, finalizeCalibration, DEFAULT_GAMEPAD } from './gamepad.js';
 
 const $ = (id) => document.getElementById(id);
@@ -16,6 +17,7 @@ let stageEnds = [], stageProf = [], stageIdx = -1;
 let CLASS = LESSONS;                 // 教室課程順序（讀到 lessons.json 後依關卡順序排）
 let page = 'class';
 let freeView = 'fpv'; // 自由練習的大畫面：'fpv' | 'chase'，存在設定裡
+let freeChannels = normChannels(null); // 自由練習的通道開關（true = 開），存在設定裡
 let L = CLASS[0], vIdx = 0, t = 0, mem = {}, paused = false, speed = 1, crashT = 0, camMode = L.cam;
 let hist = [], trail = [], ghost = [], stats = { minz: 1e9, maxz: -1e9, z0: 0, crashed: false }, lastResult = '';
 let ctrlOut = { thr: HOVER, roll: 0, pitch: 0, yaw: 0, phase: '' };
@@ -41,7 +43,7 @@ const CH = [
   { k: 'PITCH', name: 'Pitch', key: 'pitch', rate: 500 },
   { k: 'ROLL', name: 'Roll', key: 'roll', rate: 500 },
 ];
-$('chs').innerHTML = CH.map((c) => `<div class="ch"><span class="k">${c.k}</span><div class="track">${c.uni ? `<span class="hov" style="left:${HOVER * 100}%"></span>` : '<span class="mid"></span>'}<span class="fill" id="f_${c.key}"></span></div><span class="v" id="v_${c.key}"></span></div>`).join('');
+$('chs').innerHTML = CH.map((c) => `<div class="ch" id="ch_${c.key}"><span class="k">${c.k}</span><div class="track">${c.uni ? `<span class="hov" style="left:${HOVER * 100}%"></span>` : '<span class="mid"></span>'}<span class="fill" id="f_${c.key}"></span></div><span class="v" id="v_${c.key}"></span></div>`).join('');
 const TELE = [['alt', '高度', 'm'], ['vz', '垂直速度', 'm/s'], ['spd', '速度', 'm/s'], ['pit', '前傾', '°'], ['rol', '滾轉', '°'], ['hdg', '航向', '°']];
 $('tele').innerHTML = TELE.map(([id, k, u]) => `<div class="t"><div class="k">${k}</div><div class="v"><span id="t_${id}">0</span><small>${u}</small></div></div>`).join('');
 
@@ -84,6 +86,7 @@ function buildNotes() {
   $('nlist').innerHTML = L.notes.map((n) => `<li>${esc(n)}</li>`).join('');
   $('nwatch').textContent = L.watch;
   $('keys').hidden = !L.free;
+  $('chSw').hidden = !L.free;
   $('modeTag').textContent = L.free ? '你在飛' : '示範中';
   $('result').innerHTML = lastResult;
 }
@@ -95,7 +98,8 @@ function restart() {
   t = 0; mem = {}; crashT = 0; hist = []; trail = []; resetChase();
   if (L.free) { // 自由練習：從地面起飛，油門從 0 開始
     sim.groundHold = true;
-    sim.reset([-14, -9, 0], [0, 0, 0], yawOnly(0)); sim.st = { thr: 0, yaw: 0, pitch: 0, roll: 0 }; freeIn.thr = 0;
+    const fs = freeStart(freeChannels); // 油門關掉：空中 5m、懸停油門；油門開著：地面起飛
+    sim.reset(fs.p, [0, 0, 0], yawOnly(0)); sim.st = { thr: fs.thr, yaw: 0, pitch: 0, roll: 0 }; freeIn.thr = fs.thr;
   } else { sim.groundHold = false; sim.rateScale = 1; lessonStart(L, sim, L.variants[vIdx]); }
   stats = { minz: sim.p[2], maxz: sim.p[2], z0: sim.p[2], crashed: false };
   ghost = L.free ? [] : L.ghost(L.variants[vIdx]);
@@ -179,7 +183,21 @@ function freeControl(dt) {
   if (freeIn.ptrR) { freeIn.pitch = freeIn.ptrR[1]; freeIn.roll = freeIn.ptrR[0]; }
   else if (gs) { freeIn.pitch = gs.pitch; freeIn.roll = gs.roll; }
   else { freeIn.pitch += (k('ArrowUp', 'ArrowDown') * 0.5 - freeIn.pitch) * Math.min(1, dt * 10); freeIn.roll += (k('ArrowRight', 'ArrowLeft') * 0.6 - freeIn.roll) * Math.min(1, dt * 10); }
-  return { thr: freeIn.thr, yaw: freeIn.yaw, pitch: freeIn.pitch, roll: freeIn.roll, phase: sim.onGround ? '在地面 · 推油門起飛' : gs ? '自由練習 · 遙控器輸入' : '自由練習 · 鍵盤 W S A D + 方向鍵，或拖曳右側搖桿' };
+  const o = applyChannels(freeIn, freeChannels);
+  return { ...o, phase: !freeChannels.thr ? '油門鎖在懸停 · 只用開著的桿' : sim.onGround ? '在地面 · 推油門起飛' : gs ? '自由練習 · 遙控器輸入' : '自由練習 · 鍵盤 W S A D + 方向鍵，或拖曳右側搖桿' };
+}
+
+// 通道開關：油門／Yaw／Pitch／Roll，只在自由練習顯示（沒接遙控器也要顯示）
+function buildChSwitch() {
+  const el = $('chSw');
+  el.innerHTML = '<span class="chsw-k">通道開關</span>' + CHANNELS.map(([k, name]) => `<button type="button" class="chsw-b" data-k="${k}" aria-pressed="${freeChannels[k]}">${name}</button>`).join('');
+  el.querySelectorAll('button').forEach((b) => {
+    b.onclick = async () => {
+      const k = b.dataset.k; freeChannels = { ...freeChannels, [k]: !freeChannels[k] };
+      buildChSwitch(); settings = await store.saveSettings({ freeChannels });
+      if (k === 'thr') restart(); // 油門開關改變起始條件（地面／空中 5m），直接重新起飛
+    };
+  });
 }
 
 // ===== 遙控器（Gamepad）=====
@@ -313,9 +331,11 @@ function setTxt(id, v) { const el = $(id); if (el.textContent !== v) el.textCont
 function updatePanel() {
   const s = sim.st;
   for (const ch of CH) {
-    const v = s[ch.key], f = $('f_' + ch.key);
-    if (ch.uni) { f.style.left = '0'; f.style.width = (v * 100).toFixed(1) + '%'; setTxt('v_' + ch.key, (v * 100).toFixed(0) + '%'); }
-    else { const a = Math.min(v, 0), b = Math.max(v, 0); f.style.left = (50 + a * 50).toFixed(1) + '%'; f.style.width = ((b - a) * 50).toFixed(1) + '%'; setTxt('v_' + ch.key, `${(v * 100).toFixed(0)}% ${(v * ch.rate * sim.rateScale).toFixed(0)}°/s`); }
+    const v = s[ch.key], f = $('f_' + ch.key), locked = L.free && !freeChannels[ch.key];
+    $('ch_' + ch.key).classList.toggle('locked', locked);
+    if (locked) setTxt('v_' + ch.key, '鎖定');
+    if (ch.uni) { f.style.left = '0'; f.style.width = (v * 100).toFixed(1) + '%'; if (!locked) setTxt('v_' + ch.key, (v * 100).toFixed(0) + '%'); }
+    else { const a = Math.min(v, 0), b = Math.max(v, 0); f.style.left = (50 + a * 50).toFixed(1) + '%'; f.style.width = ((b - a) * 50).toFixed(1) + '%'; if (!locked) setTxt('v_' + ch.key, `${(v * 100).toFixed(0)}% ${(v * ch.rate * sim.rateScale).toFixed(0)}°/s`); }
   }
   const e = euler(sim.R);
   setTxt('t_alt', sim.p[2].toFixed(1)); setTxt('t_vz', sim.v[2].toFixed(1)); setTxt('t_spd', Math.hypot(...sim.v).toFixed(1));
@@ -525,6 +545,7 @@ async function init() {
   progress = await store.loadProgress();
   settings = await store.loadSettings();
   freeView = settings.freeView === 'chase' ? 'chase' : 'fpv';
+  freeChannels = normChannels(settings.freeChannels); buildChSwitch();
   updateGpSliders(); updateGpUi();
   buildSpeed(); selectLesson(CLASS[0]);
   requestAnimationFrame(frame);
