@@ -1,93 +1,147 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Sim, HOVER } from '../js/core.js';
-import { LESSONS, lessonStart, lessonCtrl } from '../js/demos.js';
+import { Sim, HOVER, euler } from '../js/core.js';
+import { LESSONS, runDemo, stageProfile } from '../js/demos.js';
 
-const DT = 1 / 240;
 const lesson = (id) => LESSONS.find((l) => l.id === id);
+const variant = (id, key) => { const v = lesson(id).variants.find((x) => x.key === key); assert.ok(v, `${id} 沒有版本 ${key}`); return v; };
+const run = (id, key) => runDemo(lesson(id), variant(id, key));
+const zs = (r) => r.rec.map((x) => x.p[2]);
+const speed = (x) => Math.hypot(x.v[0], x.v[1]);
+const data = JSON.parse(readFileSync(new URL('../data/lessons.json', import.meta.url), 'utf8'));
+const jsonLevels = data.tiers.flatMap((t) => t.levels);
+const jsonVariant = (id, key) => jsonLevels.find((l) => l.id === id).variants.find((v) => v.key === key);
 
-// 無 DOM 跑一輪示範，回傳統計
-function run(id, variantKey) {
-  const L = lesson(id);
-  const varr = L.variants.find((v) => v.key === variantKey);
-  assert.ok(varr, `${id} 沒有版本 ${variantKey}`);
-  const sim = new Sim(), mem = {};
-  lessonStart(L, sim);
-  const z0 = sim.p[2];
-  let t = 0, minz = z0, maxDev = 0, touched = false;
-  while (t < L.dur) {
-    const c = lessonCtrl(L, varr, sim, t, mem);
-    Object.assign(sim.st, { thr: c.thr, roll: c.roll, pitch: c.pitch, yaw: c.yaw });
-    sim.step(DT); t += DT;
-    minz = Math.min(minz, sim.p[2]);
-    if (sim.crashed || sim.p[2] <= 0) touched = true;
-    if (L.ref && t <= L.pathT[1]) {
-      const r = L.ref(t).p;
-      maxDev = Math.max(maxDev, Math.hypot(sim.p[0] - r[0], sim.p[1] - r[1]));
-    }
-    if (sim.crashed) break;
-  }
-  return { z0, minz, zEnd: sim.p[2], touched, crashed: sim.crashed, maxDev };
+// 連續航向變化（度，累計）與路線方向變化
+function headingChange(r) {
+  let prev = null, acc = 0, maxd = 0;
+  for (const x of r.rec) { const y = euler(x.R).yaw; if (prev !== null) { let d = y - prev; if (d > 180) d -= 360; if (d < -180) d += 360; acc += d; maxd = Math.max(maxd, Math.abs(acc)); } prev = y; }
+  return maxd;
+}
+function pathDirChange(r, t0) {
+  const seg = r.rec.filter((x) => x.t >= t0), dir = (x) => Math.atan2(x.v[1], x.v[0]) * 180 / Math.PI;
+  let m = 0; for (const x of seg) { let d = dir(x) - dir(seg[0]); d = ((d + 540) % 360) - 180; m = Math.max(m, Math.abs(d)); }
+  return m;
 }
 
-test('每個示範的「正確」版本全程不觸地', () => {
-  for (const L of LESSONS) {
-    const r = run(L.id, 'ok');
-    assert.equal(r.touched, false, `${L.id} 正確版觸地（最低 ${r.minz.toFixed(2)} m）`);
+test('所有「飛法」變體全程不觸地', () => {
+  for (const L of LESSONS) for (const v of L.variants) {
+    if (jsonVariant(L.id, v.key).kind !== 'style') continue;
+    const r = runDemo(L, v);
+    assert.equal(r.touched, false, `${L.id}/${v.key} 觸地（最低 ${Math.min(...zs(r)).toFixed(2)} m）`);
   }
 });
 
-test('line、turn、orbit 的「沒補油」版本會觸地', () => {
-  for (const id of ['line', 'turn', 'orbit']) {
-    const r = run(id, 'thr');
-    assert.equal(r.touched, true, `${id} 沒補油版沒有觸地（最低 ${r.minz.toFixed(2)} m）`);
+test('B1、B3、A1 的「沒補油」對照會掉到地面', () => {
+  for (const [id, key] of [['B1', 'fixed'], ['B3', 'nocomp'], ['A1', 'nocomp']]) {
+    const r = run(id, key);
+    assert.equal(r.touched, true, `${id}/${key} 沒有觸地（最低 ${Math.min(...zs(r)).toFixed(2)} m）`);
   }
 });
 
-test('turn 只打 Yaw：水平偏離路線 > 10 m', () => {
-  const r = run('turn', 'yaw');
-  assert.ok(r.maxDev > 10, `偏離只有 ${r.maxDev.toFixed(1)} m`);
+test('B2 飛法：加速段最高點比進場高 < 0.5 m，速度峰值 > 進場 + 8 m/s；對照上升 > 2 m', () => {
+  const r = run('B2', 'jet'), z0 = r.rec[0].p[2], v0 = speed(r.rec[0]);
+  const acc = r.rec.filter((x) => x.t >= 1.0 && x.t < 2.7);
+  const peak = Math.max(...acc.map((x) => x.p[2])) - z0;
+  assert.ok(peak < 0.5, `加速段最高點高出進場 ${peak.toFixed(2)} m`);
+  assert.ok(Math.max(...r.rec.map(speed)) > v0 + 8, '速度峰值不足');
+  const c = run('B2', 'short');
+  assert.ok(Math.max(...zs(c)) - c.rec[0].p[2] > 2, '對照沒有上浮');
 });
 
-test('inv：正確版結束高度 >= 起點；錯誤版結束高度 < 正確版', () => {
-  const ok = run('inv', 'ok'), bad = run('inv', 'heavy');
-  assert.ok(ok.zEnd >= ok.z0, `正確版結束 ${ok.zEnd.toFixed(2)} < 起點 ${ok.z0.toFixed(2)}`);
-  assert.ok(bad.zEnd < ok.zEnd, `錯誤版 ${bad.zEnd.toFixed(2)} 不低於正確版 ${ok.zEnd.toFixed(2)}`);
+test('B3 飛法：Roll 桿量 > 5% 的時間 < Pitch < Yaw', () => {
+  const r = run('B3', 'coord'), on = (ch) => r.rec.find((x) => Math.abs(x[ch]) > 0.05)?.t;
+  const [tr, tp, ty] = ['roll', 'pitch', 'yaw'].map(on);
+  assert.ok(tr < tp && tp < ty, `順序不對：Roll ${tr}, Pitch ${tp}, Yaw ${ty}`);
 });
 
-test('split：正確版最低高度 > 拉桿太慢版', () => {
-  const ok = run('split', 'ok'), slow = run('split', 'slow');
-  assert.ok(ok.minz > slow.minz, `正確 ${ok.minz.toFixed(2)} vs 太慢 ${slow.minz.toFixed(2)}`);
+test('B4：飛法 A 坡度 ≤ 15° 且航向變化 ≥ 90°；飛法 B 坡度 30–45°；對照航向轉 ≥ 90° 但路線方向變化 < 30°', () => {
+  const bankOf = (r) => Math.max(...r.rec.map((x) => Math.abs(euler(x.R).roll)));
+  const a = run('B4', 'flat');
+  assert.ok(bankOf(a) <= 15, `平轉最大坡度 ${bankOf(a).toFixed(1)}°`);
+  assert.ok(headingChange(a) >= 90, '平轉航向變化不足');
+  const b = run('B4', 'bank');
+  assert.ok(bankOf(b) >= 30 && bankOf(b) <= 45, `大坡度版最大坡度 ${bankOf(b).toFixed(1)}°`);
+  const c = run('B4', 'yawonly');
+  assert.ok(headingChange(c) >= 90, '只打 Yaw 的航向變化不足');
+  assert.ok(pathDirChange(c, 1.0) < 30, `路線方向變化 ${pathDirChange(c, 1.0).toFixed(0)}°`);
+});
+
+test('B5：飛法改出後 1 秒高度 ≤ 進場且 |垂直速度| < 0.5；對照改出後高度 ≥ 進場 + 1 m', () => {
+  for (const key of ['pull', 'direct', 'overthr']) {
+    const r = run('B5', key), m = r.mem.marks, z0 = 25;
+    const at = r.rec.reduce((a, x) => (Math.abs(x.t - (m.p4 + 1)) < Math.abs(a.t - (m.p4 + 1)) ? x : a));
+    if (key === 'overthr') assert.ok(at.p[2] >= z0 + 1, `對照改出後高度 ${at.p[2].toFixed(2)}`);
+    else {
+      assert.ok(at.p[2] <= z0, `${key} 改出後高度 ${at.p[2].toFixed(2)} > 進場 ${z0}`);
+      assert.ok(Math.abs(at.v[2]) < 0.5, `${key} 改出後垂直速度 ${at.v[2].toFixed(2)}`);
+    }
+  }
+});
+
+test('A2 8 字：先轉一整圈（航向累計 ≥ 340°）再反向轉回（結束航向回到起點）且高度穩定', () => {
+  const r = run('A2', 'eight'), z = zs(r);
+  assert.ok(headingChange(r) >= 340, `航向累計 ${headingChange(r).toFixed(0)}°`);
+  assert.ok(Math.max(...z) - Math.min(...z) < 0.5, '高度變化過大');
+});
+
+test('A4：正確版結束高度 >= 起點；對照結束高度 < 正確版', () => {
+  const ok = run('A4', 'cut'), bad = run('A4', 'keep');
+  assert.ok(ok.rec.at(-1).p[2] >= ok.rec[0].p[2], '正確版結束高度低於起點');
+  assert.ok(bad.rec.at(-1).p[2] < ok.rec.at(-1).p[2], '對照沒有比正確版低');
+});
+
+test('A3：反應慢版不觸地', () => {
+  assert.equal(run('A3', 'late').touched, false);
 });
 
 test('懸停油門下靜止的機體不會掉高', () => {
   const sim = new Sim();
-  for (let i = 0; i < 240 * 3; i++) sim.step(DT);
+  for (let i = 0; i < 240 * 3; i++) sim.step(1 / 240);
   assert.ok(Math.abs(sim.p[2] - 2) < 0.01);
   assert.ok(Math.abs(HOVER - 0.4) < 0.01);
 });
 
-test('lessons.json：必填欄位齊全，demo 指向存在的示範或為 null', () => {
-  const data = JSON.parse(readFileSync(new URL('../data/lessons.json', import.meta.url), 'utf8'));
-  assert.equal(data.version, 1);
-  assert.ok(Array.isArray(data.rules) && data.rules.length > 0);
-  assert.ok(Array.isArray(data.weekly) && data.weekly.length > 0);
-  assert.equal(data.levels.length, 7);
-  const demoIds = new Set(LESSONS.map((l) => l.id));
-  const ids = new Set();
+test('階段時間軸：stages 數量與 lessons.json 一致，時間遞增且最後一段到 dur，桿量比例可由模擬算出', () => {
+  for (const L of LESSONS) for (const v of L.variants) {
+    const ends = L.stages(v), js = jsonVariant(L.id, v.key);
+    assert.equal(ends.length, js.stages.length, `${L.id}/${v.key} 階段數 ${ends.length} ≠ json ${js.stages.length}`);
+    assert.ok(ends.every((e, i) => i === 0 || e > ends[i - 1]), `${L.id}/${v.key} 階段時間未遞增`);
+    assert.equal(ends.at(-1), L.dur, `${L.id}/${v.key} 最後一段應到 dur`);
+    const prof = stageProfile(L, v);
+    assert.ok(prof.every((s) => Number.isFinite(s.roll + s.pitch + s.yaw + s.thr)), `${L.id}/${v.key} 桿量比例非數字`);
+  }
+});
+
+test('lessons.json v2：必填欄位齊全，variant kind 只能是 style／contrast，demo 與變體都對得上', () => {
+  assert.equal(data.version, 2);
+  for (const k of ['guide', 'rules', 'weekly']) assert.ok(Array.isArray(data[k]) && data[k].length > 0, k);
+  assert.ok(data.free && data.free.title && data.free.notes.length > 0);
+  assert.deepEqual(data.tiers.map((t) => t.id), ['basic', 'advanced']);
+  const demoIds = new Set(LESSONS.map((l) => l.id)), ids = new Set();
   const nonEmpty = (s) => typeof s === 'string' && s.trim().length > 0;
-  data.levels.forEach((lv, i) => {
-    assert.ok(nonEmpty(lv.id), `levels[${i}].id`);
-    assert.ok(!ids.has(lv.id), `id 重複：${lv.id}`);
-    ids.add(lv.id);
-    assert.equal(lv.order, i + 1, `${lv.id} order 應為 ${i + 1}`);
-    assert.ok(nonEmpty(lv.title), `${lv.id}.title`);
-    assert.ok(lv.demo === null || demoIds.has(lv.demo), `${lv.id}.demo 指向不存在的示範：${lv.demo}`);
-    for (const k of ['sim', 'real']) {
-      assert.ok(lv[k] && nonEmpty(lv[k].do) && nonEmpty(lv[k].pass), `${lv.id}.${k} 缺 do/pass`);
-    }
-    assert.ok(Array.isArray(lv.tips) && lv.tips.length > 0 && lv.tips.every(nonEmpty), `${lv.id}.tips`);
-  });
-  assert.deepEqual(data.levels.map((l) => l.id), ['line', 'turn', 'orbit', 's', 'inv', 'split', 'flow']);
+  for (const tier of data.tiers) {
+    assert.ok(nonEmpty(tier.title) && nonEmpty(tier.intro) && tier.levels.length > 0);
+    tier.levels.forEach((lv, i) => {
+      assert.ok(nonEmpty(lv.id), 'id'); assert.ok(!ids.has(lv.id), `id 重複：${lv.id}`); ids.add(lv.id);
+      assert.equal(lv.order, i + 1, `${lv.id} order`);
+      assert.ok(nonEmpty(lv.title), `${lv.id}.title`);
+      assert.ok(lv.demo === null || demoIds.has(lv.demo), `${lv.id}.demo 指向不存在的示範：${lv.demo}`);
+      for (const k of ['sim', 'real']) assert.ok(lv[k] && nonEmpty(lv[k].do) && nonEmpty(lv[k].pass), `${lv.id}.${k}`);
+      assert.ok(Array.isArray(lv.tips) && lv.tips.length > 0 && lv.tips.every(nonEmpty), `${lv.id}.tips`);
+      assert.ok(Array.isArray(lv.notes) && typeof lv.watch === 'string' && Array.isArray(lv.variants), `${lv.id} notes/watch/variants`);
+      if (lv.demo) {
+        const dv = lesson(lv.demo).variants.map((v) => v.key).sort(), jv = lv.variants.map((v) => v.key).sort();
+        assert.deepEqual(jv, dv, `${lv.id} 變體 key 與示範不一致`);
+        assert.ok(lv.notes.length > 0 && nonEmpty(lv.watch), `${lv.id} 缺 notes/watch`);
+      }
+      for (const v of lv.variants) {
+        assert.ok(['style', 'contrast'].includes(v.kind), `${lv.id}/${v.key}.kind=${v.kind}`);
+        assert.ok(nonEmpty(v.label) && v.stages.length > 0 && v.stages.every((s) => nonEmpty(s.label) && nonEmpty(s.note)), `${lv.id}/${v.key} 階段文字`);
+      }
+    });
+  }
+  assert.deepEqual(data.tiers[0].levels.map((l) => l.id), ['B1', 'B2', 'B3', 'B4', 'B5']);
+  assert.deepEqual(data.tiers[1].levels.map((l) => l.id), ['A1', 'A2', 'A3', 'A4', 'A5']);
 });

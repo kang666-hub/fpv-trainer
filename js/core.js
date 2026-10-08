@@ -73,18 +73,18 @@ class Sim {
 }
 
 // 幾何追蹤控制器：輸入目標軌跡 → 算出「好飛手會打的桿」
-function desiredAtt(ad, psi) {
-  const zb = V.norm(ad), xc = [Math.cos(psi), Math.sin(psi), 0];
+function desiredAtt(ad, psi, xHint) { // xHint：想要機頭大致朝的方向（垂直面動作用），沒給就用航向 psi
+  const zb = V.norm(ad), xc = xHint ? V.norm(xHint) : [Math.cos(psi), Math.sin(psi), 0];
   const yb = V.norm(V.cross(zb, xc)), xb = V.cross(yb, zb);
   return M.cols(xb, yb, zb);
 }
 function track(sim, ref, kp = 4, kd = 3.2, kr = 9) {
   const ad = V.add(ref.a || [0, 0, 0], V.mul(V.sub(ref.p, sim.p), kp), V.mul(V.sub(ref.v, sim.v), kd), V.mul(ref.v, DRAG), [0, 0, G]);
-  const Rd = desiredAtt(ad, ref.psi);
+  const Rd = desiredAtt(ad, ref.psi, ref.xh);
   const A = M.mul(M.T(Rd), sim.R), B = M.mul(M.T(sim.R), Rd);
   const S = A.map((v, i) => v - B[i]);
   const eR = [0.5 * S[7], 0.5 * S[2], 0.5 * S[3]];
-  const wff = M.vec(M.T(sim.R), [0, 0, ref.psid || 0]);
+  const wff = M.vec(M.T(sim.R), ref.w || [0, 0, ref.psid || 0]); // ref.w：世界座標角速度（垂直面動作用）
   const w = V.add(V.mul(eR, -kr), wff);
   return {
     thr: clamp(V.dot(ad, M.col(sim.R, 2)) / TMAX, 0, 1),
