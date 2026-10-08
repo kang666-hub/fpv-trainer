@@ -3,7 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>花飛訓練平台</title>
+<title>TJF · Taiwan Juicy Freestyle — 花飛訓練平台</title>
+<meta name="description" content="TJF · Taiwan Juicy Freestyle 花飛訓練平台：看懂打桿、姿態與推力分解的 FPV 花飛教室與訓練菜單。">
+<meta name="theme-color" content="#0f1114">
+<link rel="icon" type="image/png" sizes="64x64" href="assets/favicon.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
 <link rel="stylesheet" href="css/style.css">
@@ -11,7 +15,10 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>花飛訓練平台</h1>
+    <a class="brand" href="./" aria-label="TJF · Taiwan Juicy Freestyle 花飛訓練平台">
+      <img src="assets/tjf-logo-white.png" alt="TJF Taiwan Juicy Freestyle" width="96" height="48">
+      <span class="brand-t"><b>TJF · Taiwan Juicy Freestyle</b><span>花飛訓練平台</span></span>
+    </a>
     <span class="sub"><b>美國手（Mode 2）</b>· Acro 模式 · 左桿 油門／Yaw · 右桿 Pitch／Roll</span>
   </header>
 
@@ -34,13 +41,18 @@
           <div class="phase" id="phase"></div>
           <div class="banner" id="banner" hidden>觸地</div>
           <div class="legend" id="legend">
-            <span><i style="background:var(--accent)"></i>推力（機身上方）</span>
-            <span><i style="background:var(--cyan)"></i>垂直分量</span>
+            <span><i style="background:var(--accent)"></i>主力：推力（機身上方）</span>
+            <span><i style="background:var(--cyan)"></i>分力：垂直</span>
+            <span><i style="background:var(--violet)"></i>分力：水平</span>
             <span><i style="background:#fff;height:2px"></i>重力線：青色碰到才不掉高</span>
           </div>
         </div>
+        <div class="timeline" id="timeline" hidden>
+          <div class="tl-bar" id="tlBar" aria-hidden="true"></div>
+          <div class="tl-rows" id="tlRows"></div>
+        </div>
         <div class="bar">
-          <div class="seg" id="variants" role="group" aria-label="示範版本"></div>
+          <div class="seg vgroups" id="variants" role="group" aria-label="示範版本"></div>
           <span class="spacer"></span>
           <div class="seg" id="speed" role="group" aria-label="播放速度"></div>
           <div class="seg" id="camsel" role="group" aria-label="視角"></div>

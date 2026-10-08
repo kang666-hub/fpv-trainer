@@ -1,4 +1,4 @@
-# 花飛訓練平台 v1
+# TJF · Taiwan Juicy Freestyle — 花飛訓練平台 v2
 
 FPV 飛友用的花飛訓練網站：教室（物理示範）、訓練菜單（進度紀錄）、自由練習。純靜態、不需登入、無建置步驟。
 
@@ -8,11 +8,13 @@ python3 -m http.server 8000
 ```
 開啟 http://localhost:8000（不能直接點開 index.html，ES modules 與 `fetch` 需要 http）。
 
-## 怎麼改關卡
-只改 `data/lessons.json`，重新整理即生效：
-- `rules`／`weekly`：訓練規則、每週檢討清單
-- `levels[]`：`id`、`order`、`title`、`demo`（對應 `js/demos.js` 的示範 id，沒有示範填 `null`）、`sim`／`real`（`do`、`pass`）、`tips`
-- 加關卡：在 `levels` 加一筆，`order` 接續；「鎖關」依 `order` 順序判斷
+## 怎麼改關卡（v2）
+文字全在 `data/lessons.json`，改完重新整理即生效：
+- `guide`：基本練習指引（訓練菜單最上方）；`rules`／`weekly`：訓練規則、每週檢討；`free`：自由練習的說明
+- `tiers[]`（基礎 `basic`／進階 `advanced`）→ `levels[]`：`id`、`order`（組內建議順序，不鎖關）、`title`、`demo`（對應 `js/demos.js` 的示範 id，沒有示範填 `null`）、`sim`／`real`、`tips`、`notes`、`watch`
+- `variants[]`：`key`（對應示範的變體）、`kind`（`style` 飛法／`contrast` 對照）、`label`、`stages[]`（`label`、`note`）。每段的桿量比例由模擬即時算出，不寫在 json
+- 加新動作（Power Loop、Matty Flip…）：在 `js/demos.js` 的 `LESSONS` 加一筆（`id`、`dur`、`variants`、`start`、`ctrl`、`stages`），再到 `lessons.json` 加對應關卡；其他程式不用改
+- 舊版進度（v1）第一次讀到時自動轉成 v2，原文備份在 `fpv-trainer-progress-v1-backup`；舊匯出檔也能匯入
 
 ## 自由練習的畫面
 大畫面預設是 FPV 主視角（中央準星＋左下高度／速度、右下油門），小畫面是第三人稱追尾；視角鈕可切成「第三人稱」，大小畫面對調，選擇存在設定（`freeView`）。教室示範維持第三人稱大畫面＋FPV 小畫面。
@@ -39,7 +41,7 @@ node --test
 
 ## 結構
 - `js/core.js` 物理＋控制器（無 DOM）　`js/demos.js` 示範腳本　`js/view.js` 繪圖
-- `js/progress.js` 進度儲存層，**唯一碰 localStorage 的檔案**（key：`fpv-trainer-progress-v1`）。v2 加後端時只換這個檔。
+- `js/progress.js` 進度儲存層，**唯一碰 localStorage 的檔案**（key：`fpv-trainer-progress-v1`，內容 version 2）。v2 加後端時只換這個檔。
 - `js/app.js` 分頁、菜單、主迴圈
 
 ## 部署（GitHub Pages）
