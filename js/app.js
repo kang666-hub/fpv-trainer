@@ -45,7 +45,7 @@ const CH = [
 ];
 $('chs').innerHTML = CH.map((c) => `<div class="ch" id="ch_${c.key}"><span class="k">${c.k}</span><div class="track">${c.uni ? `<span class="hov" style="left:${HOVER * 100}%"></span>` : '<span class="mid"></span>'}<span class="fill" id="f_${c.key}"></span></div><span class="v" id="v_${c.key}"></span></div>`).join('');
 const TELE = [['alt', '高度', 'm'], ['vz', '垂直速度', 'm/s'], ['spd', '速度', 'm/s'], ['pit', '前傾', '°'], ['rol', '滾轉', '°'], ['hdg', '航向', '°']];
-$('tele').innerHTML = TELE.map(([id, k, u]) => `<div class="t"><div class="k">${k}</div><div class="v"><span id="t_${id}">0</span><small>${u}</small></div>${id === 'spd' ? '<div class="sub" id="t_kmh">0 km/h</div>' : ''}</div>`).join('');
+$('tele').innerHTML = TELE.map(([id, k, u]) => `<div class="t"><div class="k">${k}</div><div class="v"><span id="t_${id}">0</span><small>${u}</small></div><div class="sub"${id === 'spd' ? ' id="t_kmh">0 km/h' : '>'}</div></div>`).join('');
 
 // ===== 教室 UI =====
 const shortTitle = (s) => String(s).replace(/（.*?）/g, '');
