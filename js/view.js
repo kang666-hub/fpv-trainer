@@ -68,6 +68,42 @@ function poly(ctx, cam, pts, color, w, dash) {
   ctx.beginPath(); for (let i = 1; i < pts.length; i++) seg(ctx, cam, pts[i - 1], pts[i]);
   ctx.setLineDash(dash || []); ctx.strokeStyle = color; ctx.lineWidth = w; ctx.stroke(); ctx.setLineDash([]);
 }
+// ===== 飛機模型：機身板、四支機臂、四個槳盤、機頭鏡頭。頂面亮、底面暗（看到哪一面就畫哪一種顏色），倒飛一眼可辨 =====
+const BODY = { A: 0.34, PR: 0.17 };
+function fillPoly(ctx, cam, pts, fill, stroke, sw) {
+  const P = pts.map((q) => proj(cam, q)); if (P.some((q) => !q)) return;
+  ctx.beginPath(); P.forEach((q, i) => (i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]))); ctx.closePath();
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = sw || 1; ctx.stroke(); }
+}
+function drawBody(ctx, cam, sim, at) {
+  const p = sim.p, zb = M.col(sim.R, 2), dist = Math.max(0.5, V.dot(V.sub(p, cam.c), cam.f));
+  const px = 2 * BODY.A * cam.F / dist;                         // 機體在螢幕上的寬度（像素）
+  const top = V.dot(zb, V.sub(cam.c, p)) > 0;                    // 鏡頭看到的是頂面還是底面
+  const motors = [[BODY.A, -BODY.A, 1], [BODY.A, BODY.A, 1], [-BODY.A, -BODY.A, 0], [-BODY.A, BODY.A, 0]];
+  const plate = top ? '#eef1f5' : '#2c3037', armC = top ? '#d7dbe0' : '#5a616b';
+  if (px < 26) { // 太遠：簡化成十字機臂＋兩個前槳橘點＋機身點，不要糊成一團
+    const c = proj(cam, p); if (!c) return;
+    for (const [x, y, front] of motors) { const q = proj(cam, at(x, y, 0)); if (!q) continue; ctx.beginPath(); ctx.moveTo(c[0], c[1]); ctx.lineTo(q[0], q[1]); ctx.strokeStyle = armC; ctx.lineWidth = 1.5; ctx.stroke(); ctx.beginPath(); ctx.arc(q[0], q[1], Math.max(1.5, px * 0.09), 0, 7); ctx.fillStyle = front ? '#ff6a1f' : '#aab2bb'; ctx.fill(); }
+    ctx.beginPath(); ctx.arc(c[0], c[1], Math.max(2, px * 0.12), 0, 7); ctx.fillStyle = plate; ctx.fill(); return;
+  }
+  const spin = performance.now() / 1000 * (6 + 50 * sim.st.thr);   // 槳葉轉動：油門越大轉越快
+  const armW = Math.max(1.5, 0.05 * cam.F / dist);
+  for (const [x, y] of motors) line(ctx, cam, at(0, 0, 0), at(x, y, 0), armC, armW);
+  for (const [x, y, front] of motors) { // 槳盤：半透明圓盤＋兩片旋轉的槳葉刻線
+    const disc = [], ring = front ? '#ff6a1f' : '#aab2bb', alpha = 0.10 + 0.20 * sim.st.thr;
+    for (let i = 0; i < 20; i++) { const a = i / 20 * Math.PI * 2; disc.push(at(x + Math.cos(a) * BODY.PR, y + Math.sin(a) * BODY.PR, 0.03)); }
+    fillPoly(ctx, cam, disc, front ? `rgba(255,106,31,${alpha})` : `rgba(170,178,187,${alpha})`, ring, 1.5);
+    for (let k = 0; k < 2; k++) { const a = spin + k * Math.PI; line(ctx, cam, at(x - Math.cos(a) * BODY.PR, y - Math.sin(a) * BODY.PR, 0.03), at(x + Math.cos(a) * BODY.PR, y + Math.sin(a) * BODY.PR, 0.03), front ? 'rgba(255,170,120,0.8)' : 'rgba(210,216,222,0.7)', 1.5); }
+  }
+  // 中心機身板（實心）：頂面亮、底面暗，加一道頂面前後的中線
+  fillPoly(ctx, cam, [at(0.22, -0.08, 0), at(0.22, 0.08, 0), at(-0.18, 0.11, 0), at(-0.18, -0.11, 0)], plate, top ? '#9aa3ad' : '#12151a', 1);
+  if (top) line(ctx, cam, at(0.18, 0, 0.005), at(-0.14, 0, 0.005), '#ff6a1f', 1.5);
+  // 機頭鏡頭：小方塊＋ 25° 朝向的短線
+  fillPoly(ctx, cam, [at(0.2, -0.045, 0.01), at(0.27, -0.045, 0.01), at(0.27, 0.045, 0.01), at(0.2, 0.045, 0.01)], '#ff6a1f', '#14100c', 1);
+  const cd = V.add(V.mul(M.col(sim.R, 0), Math.cos(25 * D2R)), V.mul(zb, Math.sin(25 * D2R)));
+  line(ctx, cam, at(0.27, 0, 0.03), V.add(at(0.27, 0, 0.03), V.mul(cd, 0.4)), '#ffb078', 2);
+}
 function drawDrone(ctx, cam, sim, layers) {
   const R = sim.R, p = sim.p, xb = M.col(R, 0), yb = M.col(R, 1), zb = M.col(R, 2);
   const at = (x, y, z) => V.add(p, V.mul(xb, x), V.mul(yb, y), V.mul(zb, z));
@@ -75,14 +111,7 @@ function drawDrone(ctx, cam, sim, layers) {
   const g = [p[0], p[1], 0];
   line(ctx, cam, g, p, 'rgba(255,255,255,0.25)', 1);
   const sh = proj(cam, g); if (sh) { ctx.beginPath(); ctx.ellipse(sh[0], sh[1], Math.max(2, 0.45 * cam.F / sh[2]), Math.max(1, 0.18 * cam.F / sh[2]), 0, 0, 7); ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fill(); }
-  const A = 0.34, PR = 0.17;
-  const motors = [[A, -A, 1], [A, A, 1], [-A, -A, 0], [-A, A, 0]];
-  for (const [x, y] of motors) line(ctx, cam, at(0, 0, 0), at(x, y, 0), '#d7dbe0', Math.max(1.5, 0.05 * cam.F / Math.max(1, V.dot(V.sub(p, cam.c), cam.f))));
-  for (const [x, y, front] of motors) {
-    const pts = []; for (let i = 0; i <= 16; i++) { const a = i / 16 * Math.PI * 2; pts.push(at(x + Math.cos(a) * PR, y + Math.sin(a) * PR, 0.03)); }
-    poly(ctx, cam, pts, front ? '#ff6a1f' : '#aab2bb', 2);
-  }
-  line(ctx, cam, at(0.05, 0, 0.04), at(0.55, 0, 0.12), '#ff6a1f', 2.5); // 鏡頭方向
+  drawBody(ctx, cam, sim, at);
   // 機身上方：固定長度的半透明細線，油門歸零（推力箭頭消失）或倒置時也看得出機身朝向
   line(ctx, cam, p, V.add(p, V.mul(zb, 0.6)), 'rgba(255,214,170,0.5)', 2);
   // 力的箭頭：全部用 forces.js 的數字（單位 g），1g = 懸停推力的長度 L0
