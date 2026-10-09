@@ -227,3 +227,24 @@ export function drawOSD(ctx, W, H, { alt, spd, thr }) {
   ctx.fillText(`THR ${(thr * 100).toFixed(0)}%`, W - pad, H - pad);
   ctx.restore();
 }
+
+// 互動單元的小圖：y = f(x) 曲線、上限水平線、臨界交點、目前滑桿位置的點。文字由呼叫端從 lessons.json 傳進來
+export function drawCurve(cv, def, x, tx) {
+  const dpr = Math.min(2, devicePixelRatio || 1), W = cv.clientWidth, H = cv.clientHeight || 150;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W, H);
+  const pl = 46, pr = 8, pt = 8, pb = 26, { x: ax, y: ay } = def;
+  const X = (v) => pl + (v - ax.min) / (ax.max - ax.min) * (W - pl - pr), Y = (v) => pt + (1 - (v - ay.min) / (ay.max - ay.min)) * (H - pt - pb);
+  c.font = '10px "JetBrains Mono",monospace'; c.fillStyle = '#8d949e'; c.strokeStyle = '#2a2f37'; c.lineWidth = 1; c.textAlign = 'right';
+  for (let v = ay.min; v <= ay.max; v += 40) { c.beginPath(); c.moveTo(pl, Y(v)); c.lineTo(W - pr, Y(v)); c.stroke(); c.fillText(v + '%', pl - 4, Y(v) + 3); }
+  c.textAlign = 'center'; for (let v = ax.min; v <= ax.max; v += 20) c.fillText(v + '', X(v), H - pb + 12);
+  c.fillText(tx.x || '', pl + (W - pl - pr) / 2, H - 2);
+  c.save(); c.translate(8, pt + (H - pt - pb) / 2); c.rotate(-Math.PI / 2); c.fillText(tx.y || '', 0, 0); c.restore();
+  c.setLineDash([5, 4]); c.strokeStyle = '#ffffff'; c.beginPath(); c.moveTo(pl, Y(def.limit)); c.lineTo(W - pr, Y(def.limit)); c.stroke();
+  c.beginPath(); c.moveTo(X(def.cross), Y(ay.min)); c.lineTo(X(def.cross), Y(def.limit)); c.strokeStyle = 'rgba(255,255,255,0.4)'; c.stroke(); c.setLineDash([]);
+  c.textAlign = 'left'; c.fillStyle = '#fff'; c.fillText(tx.limit || '', pl + 3, Y(def.limit) - 3); c.textAlign = 'center'; c.fillText(tx.cross || '', X(def.cross), Y(ay.min) - 3);
+  c.beginPath(); let started = false;
+  for (let v = ax.min; v <= ax.max + 1e-9; v += 0.5) { const y = def.f(v); if (!isFinite(y) || y > ay.max) break; if (started) c.lineTo(X(v), Y(y)); else { c.moveTo(X(v), Y(y)); started = true; } }
+  c.strokeStyle = '#3fd0e0'; c.lineWidth = 2; c.stroke();
+  const yv = Math.min(ay.max, def.f(x)); c.beginPath(); c.arc(X(x), Y(yv), 5, 0, 7); c.fillStyle = def.f(x) > def.limit ? '#ffd23f' : '#ff6a1f'; c.fill(); c.strokeStyle = '#14100c'; c.lineWidth = 2; c.stroke();
+}

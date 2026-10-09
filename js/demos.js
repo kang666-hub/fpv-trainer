@@ -1,6 +1,7 @@
 // 示範腳本與軌跡。無 DOM。文字（標題、說明、階段說明）一律在 data/lessons.json，這裡只放動作本身。
 // 新增動作：在 LESSONS 加一筆（id 要和 lessons.json 的 demo 欄位一致），再到 lessons.json 補文字。
 import { HOVER, D2R, G, TMAX, DRAG, RATE, V, M, clamp, euler, track, attFor, yawOnly, Sim } from './core.js';
+import { forces, thrForLevel } from './forces.js';
 
 const DT = 1 / 240;
 const wrapDeg = (a) => ((a + 540) % 360) - 180;
@@ -450,20 +451,50 @@ const S5 = {
   stages: () => [1, 3.5, 7],
 };
 
-export const LESSONS = [S1, S2, S3, S4, S5, B1, B2, B3, B4, B5, A1, A2, A3, A4];
+// S6 P ↔ T：Pitch 傾角和油門的搭配（互動單元）。
+// 示範可以宣告 controls（滑桿）：app 讀到就顯示滑桿，值傳進 start／ctrl／readout／endWhen 的最後一個參數 ctl；拖動就從頭重跑。
+// endWhen(sim, t, v, ctl)：回傳 true 就提早結束這一輪（這裡是掉到 5m 以下）。readout 回傳即時讀數，curve 描述小圖（文字在 lessons.json）。
+const S6_TILT_MAX = 80;
+const S6 = {
+  id: 'S6', dur: 6, cam: 'side', side: { follow: [3, -12, 1] },
+  controls: [{ key: 'tilt', min: 0, max: S6_TILT_MAX, step: 1, default: 30 }],
+  variants: [{ key: 'hold' }, { key: 'fixed' }],
+  start: (sim) => { sim.reset([0, 0, 15], [0, 0, 0], yawOnly(0)); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; },
+  ctrl: (v, sim, t, mem, ctl) => {
+    const e = euler(sim.R), tilt = ctl.tilt;
+    const tiltNow = Math.acos(clamp(sim.R[8], -1, 1)) / D2R;
+    const thr = v.key === 'hold' ? clamp(thrForLevel(tiltNow).thr, 0, 1) : HOVER; // hold：油門跟著傾角補；fixed：固定在懸停
+    return { thr, roll: clamp(-e.roll * 8 / 500, -1, 1), pitch: clamp((tilt - e.pitch) / 12, -1, 1), yaw: 0, phase: null };
+  },
+  endWhen: (sim) => sim.p[2] < 5,
+  ghost: () => [],
+  stages: () => [0.5, 6],
+  readout: (v, sim, ctl) => {
+    const need = thrForLevel(ctl.tilt), f = forces(sim);
+    return { vals: { tilt: ctl.tilt, need: need.thr * 100, vert: f.verticalMag, horiz: f.horizontalMag }, digits: { tilt: 0, need: 0, vert: 2, horiz: 2 }, over: !need.ok };
+  },
+  // 小圖：橫軸傾角、縱軸維持高度需要的油門 %（= 懸停 ÷ cosθ），100% 水平線與交點
+  curve: { x: { key: 'tilt', min: 0, max: S6_TILT_MAX }, y: { min: 0, max: 160 }, f: (th) => thrForLevel(th).thr * 100, limit: 100, cross: Math.acos(HOVER) / D2R },
+};
+
+export const LESSONS = [S1, S2, S3, S4, S5, S6, B1, B2, B3, B4, B5, A1, A2, A3, A4];
 
 function startFromRef(sim, ref) { const r = ref(0); sim.reset(r.p, r.v, attFor(r)); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; }
 
-export function lessonStart(L, sim, varr) { L.start(sim, varr); }
-export function lessonCtrl(L, varr, sim, t, mem) { return L.ctrl(varr, sim, t, mem); }
+// 示範的滑桿（controls）：預設值、把任意輸入夾回範圍
+export const controlDefaults = (L) => Object.fromEntries((L.controls || []).map((c) => [c.key, c.default]));
+export const controlValues = (L, vals) => Object.fromEntries((L.controls || []).map((c) => [c.key, clamp(Number.isFinite(vals?.[c.key]) ? vals[c.key] : c.default, c.min, c.max)]));
+export function lessonStart(L, sim, varr, ctl = controlDefaults(L)) { L.start(sim, varr, ctl); }
+export function lessonCtrl(L, varr, sim, t, mem, ctl = controlDefaults(L)) { return L.ctrl(varr, sim, t, mem, ctl); }
 
 // ===== 無畫面跑一輪（測試與教室的「桿量比例」共用）=====
-export function runDemo(L, varr, dt = DT) {
-  const sim = new Sim(), mem = {}, rec = [];
-  lessonStart(L, sim, varr);
+export function runDemo(L, varr, dt = DT, ctlIn) {
+  const sim = new Sim(), mem = {}, rec = [], ctl = controlValues(L, ctlIn);
+  lessonStart(L, sim, varr, ctl);
   let t = 0;
   while (t < L.dur) {
-    const c = lessonCtrl(L, varr, sim, t, mem);
+    if (L.endWhen && L.endWhen(sim, t, varr, ctl)) break;
+    const c = lessonCtrl(L, varr, sim, t, mem, ctl);
     Object.assign(sim.st, { thr: c.thr, roll: c.roll, pitch: c.pitch, yaw: c.yaw });
     sim.step(dt);
     rec.push({ t, thr: c.thr, roll: c.roll, pitch: c.pitch, yaw: c.yaw, p: sim.p.slice(), v: sim.v.slice(), R: sim.R.slice() });

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Sim, HOVER, euler } from '../js/core.js';
-import { LESSONS, runDemo, stageProfile } from '../js/demos.js';
+import { LESSONS, runDemo, stageProfile, controlDefaults, controlValues } from '../js/demos.js';
 
 const lesson = (id) => LESSONS.find((l) => l.id === id);
 const variant = (id, key) => { const v = lesson(id).variants.find((x) => x.key === key); assert.ok(v, `${id} 沒有版本 ${key}`); return v; };
@@ -193,7 +193,7 @@ test('lessons.json v2：必填欄位齊全，variant kind 只能是 style／cont
       }
     });
   }
-  assert.deepEqual(data.tiers[0].levels.map((l) => l.id), ['S1', 'S2', 'S3', 'S4', 'S5']);
+  assert.deepEqual(data.tiers[0].levels.map((l) => l.id), ['S1', 'S2', 'S3', 'S4', 'S5', 'S6']);
   assert.deepEqual(data.tiers[1].levels.map((l) => l.id), ['B1', 'B2', 'B3', 'B4', 'B5']);
   assert.deepEqual(data.tiers[2].levels.map((l) => l.id), ['A1', 'A2', 'A3', 'A4', 'A5']);
 });
@@ -202,10 +202,10 @@ test('lessons.json v2：必填欄位齊全，variant kind 只能是 style／cont
 const tiltOf = (x) => Math.acos(Math.max(-1, Math.min(1, x.R[8]))) * 180 / Math.PI;
 const after = (r, t0) => r.rec.filter((x) => x.t >= t0);
 
-test('入門 S1–S5：每個變體（含對照）全程不觸地，且共 14 個變體（spec 寫 13，依表格實為 3+3+3+1+4）', () => {
+test('入門 S1–S6：每個變體（含對照）全程不觸地，且共 16 個變體（3+3+3+1+4+2）', () => {
   const S = LESSONS.filter((l) => /^S\d$/.test(l.id));
-  assert.equal(S.length, 5);
-  assert.equal(S.reduce((n, l) => n + l.variants.length, 0), 14);
+  assert.equal(S.length, 6);
+  assert.equal(S.reduce((n, l) => n + l.variants.length, 0), 16);
   for (const L of S) for (const v of L.variants) {
     const r = runDemo(L, v);
     assert.equal(L.id === 'S1' ? r.crashed : r.touched, false, `${L.id}/${v.key} 觸地（最低 ${Math.min(...zs(r)).toFixed(2)} m）`);
@@ -260,4 +260,48 @@ test('S5：每個變體的 relates 指向存在的關卡或為 null；入門每�
   }
   assert.equal(jsonVariant('S5', 'rt').relates, 'B3');
   for (const lv of data.tiers[0].levels) for (const v of lv.variants) assert.ok(v.stages.length >= 2 && v.stages.length <= 4, `${lv.id}/${v.key} 階段數 ${v.stages.length}`);
+});
+
+// ===== S6 P ↔ T 互動單元 =====
+const runS6 = (key, tilt) => runDemo(lesson('S6'), variant('S6', key), 1 / 240, { tilt });
+const range = (r) => Math.max(...zs(r)) - Math.min(...zs(r));
+const zAt = (r, t) => r.rec.find((x) => x.t >= t).p[2];
+
+test('S6 hold：傾角 30°、45°、60° 全程高度變化 < 0.3m；75° 時 2 秒內掉高 > 1m', () => {
+  for (const th of [30, 45, 60]) assert.ok(range(runS6('hold', th)) < 0.3, `${th}° 高度變化 ${range(runS6('hold', th)).toFixed(2)} m`);
+  const r = runS6('hold', 75);
+  assert.ok(15 - zAt(r, 2) > 1, `75° 2 秒只掉 ${(15 - zAt(r, 2)).toFixed(2)} m`);
+});
+
+test('S6 fixed：傾角 45° 時 2 秒內掉高 > 2m', () => {
+  const r = runS6('fixed', 45);
+  assert.ok(15 - zAt(r, 2) > 2, `2 秒只掉 ${(15 - zAt(r, 2)).toFixed(2)} m`);
+});
+
+test('S6：兩個變體在 0–80° 任何傾角都不觸地（掉到 5m 以下就結束該輪）', () => {
+  for (const key of ['hold', 'fixed']) for (let th = 0; th <= 80; th += 5) {
+    const r = runS6(key, th);
+    assert.equal(r.touched, false, `${key} ${th}° 觸地`);
+    assert.ok(r.rec.at(-1).t <= 6 + 1e-9);
+  }
+});
+
+test('示範 controls：預設值、夾範圍，且滑桿的值真的傳進 ctrl（傾角 0° 與 45° 的結果不同）', () => {
+  const L = lesson('S6');
+  assert.deepEqual(controlDefaults(L), { tilt: 30 });
+  assert.deepEqual(controlValues(L, { tilt: 999 }), { tilt: 80 });
+  assert.deepEqual(controlValues(L, { tilt: -5 }), { tilt: 0 });
+  assert.deepEqual(controlValues(L, {}), { tilt: 30 });
+  assert.deepEqual(controlValues(lesson('B1'), { tilt: 10 }), {}); // 沒宣告 controls 的示範：不帶任何值
+  const a = runS6('hold', 0), b = runS6('hold', 45);
+  assert.ok(Math.abs(euler(b.rec.at(-1).R).pitch - 45) < 2 && Math.abs(euler(a.rec.at(-1).R).pitch) < 2, '滑桿值沒有傳進 ctrl');
+});
+
+test('S6 readout／curve：66.4° 為臨界，超過 over = true；曲線在 0° 為 40%', () => {
+  const L = lesson('S6'), v = variant('S6', 'hold'), sim = new Sim();
+  assert.equal(L.readout(v, sim, { tilt: 60 }).over, false);
+  assert.equal(L.readout(v, sim, { tilt: 70 }).over, true);
+  assert.ok(Math.abs(L.curve.f(0) - 40) < 0.01 && Math.abs(L.curve.cross - 66.4) < 0.1);
+  const lv = jsonLevels.find((l) => l.id === 'S6');
+  assert.ok(lv.readout.line.includes('{tilt}') && lv.readout.warn.includes('{need}') && lv.curve.x && lv.controls[0].key === 'tilt');
 });
