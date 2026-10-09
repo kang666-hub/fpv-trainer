@@ -11,10 +11,23 @@ python3 -m http.server 8000
 ## 怎麼改關卡（v2）
 文字全在 `data/lessons.json`，改完重新整理即生效：
 - `guide`：基本練習指引（訓練菜單最上方）；`rules`／`weekly`：訓練規則、每週檢討；`free`：自由練習的說明
-- `tiers[]`（基礎 `basic`／進階 `advanced`）→ `levels[]`：`id`、`order`（組內建議順序，不鎖關）、`title`、`demo`（對應 `js/demos.js` 的示範 id，沒有示範填 `null`）、`sim`／`real`、`tips`、`notes`、`watch`
+- `tiers[]`（入門 `intro`／基礎 `basic`／進階 `advanced`）→ `levels[]`：`id`、`order`（組內建議順序，不鎖關）、`title`、`demo`（對應 `js/demos.js` 的示範 id，沒有示範填 `null`）、`sim`／`real`、`tips`、`notes`、`watch`
 - `variants[]`：`key`（對應示範的變體）、`kind`（`style` 飛法／`contrast` 對照）、`label`、`stages[]`（`label`、`note`）。每段的桿量比例由模擬即時算出，不寫在 json
 - 加新動作（Power Loop、Matty Flip…）：在 `js/demos.js` 的 `LESSONS` 加一筆（`id`、`dur`、`variants`、`start`、`ctrl`、`stages`），再到 `lessons.json` 加對應關卡；其他程式不用改
 - 舊版進度（v1）第一次讀到時自動轉成 v2，原文備份在 `fpv-trainer-progress-v1-backup`；舊匯出檔也能匯入
+
+## 力的圖層與 forces.js（v3.0）
+- `js/forces.js`（純函式，無 DOM，Node 可測）：`forces(sim)` 以「重力倍數 g」回傳推力、垂直／水平分量、重力（固定 [0,0,-1]）與合力（推力＋重力，**不含阻力**）及各自大小；`thrForLevel(傾角°)` 回傳維持高度需要的油門 = 懸停 ÷ cosθ，`{ thr, ok }`，`thr > 1` 時 `ok=false`（66.4° 時剛好 100%）。`view.js` 畫箭頭只用這裡的數字，不另外算。
+- 教室舞台下方的圖例是三個可點的圖層開關：主力（推力）、分力（垂直／水平）、合力。狀態存在設定（`fpv-trainer-settings-v1`）的 `forceLayers` 欄位：`{ thrust, comps, net }`（布林，預設全開）。圖例文字在 `lessons.json` 的 `legend`。
+- 箭頭尖端旁標 g 數值；畫面寬 < 600px 只標推力與合力。
+
+## 示範的互動滑桿（controls）
+示範在 `js/demos.js` 可以宣告通用的滑桿，app 不需要為個別示範寫特例（S6「P ↔ T」就是這樣做的）：
+- `controls: [{ key, min, max, step, default }]`：app 在示範下方顯示滑桿，目前的值以 `ctl` 物件（`{ [key]: 數字 }`）傳給 `start(sim, v, ctl)`、`ctrl(v, sim, t, mem, ctl)`、`readout`、`endWhen`；拖動滑桿就從頭重跑。滑桿標題與單位寫在 `lessons.json` 該關的 `controls: [{ key, label, unit }]`。
+- `endWhen(sim, t, v, ctl)`（選用）：回傳 `true` 就提早結束這一輪（例如掉到 5m 以下）。
+- `readout(v, sim, ctl)`（選用）：回傳 `{ vals, digits, over }`，app 把 `lessons.json` 該關 `readout.line` 的 `{名稱}` 換成數字；`over` 為真時另外顯示 `readout.warn`。
+- `curve`（選用）：`{ x: { key, min, max }, y: { min, max }, f, limit, cross }` 畫一張小圖（曲線＋上限線＋目前滑桿位置的點），軸標籤在 `lessons.json` 該關的 `curve`。
+- 純函式 `controlDefaults(L)`、`controlValues(L, vals)`、`runDemo(L, v, dt, ctl)` 可在 Node 測試。
 
 ## 自由練習的畫面
 大畫面預設是 FPV 主視角（中央準星＋左下高度／速度、右下油門），小畫面是第三人稱追尾；視角鈕可切成「第三人稱」，大小畫面對調，選擇存在設定（`freeView`）。教室示範維持第三人稱大畫面＋FPV 小畫面。
@@ -40,7 +53,7 @@ node --test
 ```
 
 ## 結構
-- `js/core.js` 物理＋控制器（無 DOM）　`js/demos.js` 示範腳本　`js/view.js` 繪圖
+- `js/core.js` 物理＋控制器（無 DOM）　`js/forces.js` 力的計算（無 DOM）　`js/demos.js` 示範腳本　`js/view.js` 繪圖
 - `js/progress.js` 進度儲存層，**唯一碰 localStorage 的檔案**（key：`fpv-trainer-progress-v1`，內容 version 2）。v2 加後端時只換這個檔。
 - `js/app.js` 分頁、菜單、主迴圈
 
