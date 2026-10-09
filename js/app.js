@@ -17,6 +17,8 @@ let stageEnds = [], stageProf = [], stageIdx = -1;
 let CLASS = LESSONS;                 // 教室課程順序（讀到 lessons.json 後依關卡順序排）
 let page = 'class';
 let freeView = 'fpv'; // 自由練習的大畫面：'fpv' | 'chase'，存在設定裡
+let forceLayers = { thrust: true, comps: true, net: true }; // 力的圖層開關，存在設定（forceLayers）
+let legendText = null;                // lessons.json 的 legend 文字
 let freeChannels = normChannels(null); // 自由練習的通道開關（true = 開），存在設定裡
 let L = CLASS[0], vIdx = 0, t = 0, mem = {}, paused = false, speed = 1, crashT = 0, camMode = L.cam;
 let hist = [], trail = [], ghost = [], stats = { minz: 1e9, maxz: -1e9, z0: 0, crashed: false }, lastResult = '';
@@ -33,6 +35,7 @@ function applyContent(data) {
     Object.assign(l, { title: lv.title, notes: lv.notes, watch: lv.watch, tier: tier.id, levelId: lv.id });
     for (const v of l.variants) { const jv = lv.variants.find((x) => x.key === v.key); if (jv) Object.assign(v, { kind: jv.kind, label: jv.label, stages: jv.stages, relates: jv.relates ?? null }); }
   }
+  legendText = data.legend || null; buildLegend();
   if (data.free) Object.assign(FREE, { title: data.free.title, notes: data.free.notes, watch: data.free.watch });
 }
 
@@ -46,6 +49,22 @@ const CH = [
 $('chs').innerHTML = CH.map((c) => `<div class="ch" id="ch_${c.key}"><span class="k">${c.k}</span><div class="track">${c.uni ? `<span class="hov" style="left:${HOVER * 100}%"></span>` : '<span class="mid"></span>'}<span class="fill" id="f_${c.key}"></span></div><span class="v" id="v_${c.key}"></span></div>`).join('');
 const TELE = [['alt', '高度', 'm'], ['vz', '垂直速度', 'm/s'], ['spd', '速度', 'm/s'], ['pit', '前傾', '°'], ['rol', '滾轉', '°'], ['hdg', '航向', '°']];
 $('tele').innerHTML = TELE.map(([id, k, u]) => `<div class="t"><div class="k">${k}</div><div class="v"><span id="t_${id}">0</span><small>${u}</small></div><div class="sub"${id === 'spd' ? ' id="t_kmh">0 km/h' : '>'}</div></div>`).join('');
+
+// ===== 圖例（可點的圖層開關）=====
+function buildLegend() {
+  const t = legendText, el = $('legend');
+  if (!t) { el.innerHTML = ''; return; }
+  const bar = (c) => `<i style="background:${c}"></i>`;
+  const tog = (k, bars, text, tip) => `<button type="button" class="lg" data-k="${k}" aria-pressed="${forceLayers[k]}"${tip ? ` title="${esc(tip)}"` : ''}>${bars}${esc(text)}</button>`;
+  el.innerHTML = `<span>${bar('rgba(255,214,170,.5)')}${esc(t.body)}</span>`
+    + tog('thrust', bar('var(--accent)'), t.thrust)
+    + tog('comps', bar('var(--cyan)') + bar('var(--violet)'), t.comps)
+    + tog('net', bar('#ffd23f'), t.net, t.netNote)
+    + `<span>${bar('#fff')}${esc(t.gravity)}</span>`;
+  el.querySelectorAll('button').forEach((b) => {
+    b.onclick = async () => { const k = b.dataset.k; forceLayers = { ...forceLayers, [k]: !forceLayers[k] }; buildLegend(); settings = await store.saveSettings({ forceLayers }); };
+  });
+}
 
 // ===== 教室 UI =====
 const shortTitle = (s) => String(s).replace(/（.*?）/g, '');
@@ -367,7 +386,7 @@ function frame(now) {
         if (sl.length > 90) { sl.shift(); sr.shift(); }
       }
     }
-    const S = { sim, poles: L.poles, ghost, trail, marks: L.overlay ? L.overlay(L.variants[vIdx], sim, t, mem) : null };
+    const S = { sim, poles: L.poles, ghost, trail, layers: forceLayers, marks: L.overlay ? L.overlay(L.variants[vIdx], sim, t, mem) : null };
     const fpvMain = L.free && freeView === 'fpv'; // 自由練習預設 FPV 為大畫面，小畫面放第三人稱
     const mode = L.free ? 'chase' : camMode;
     const drawChase = (cv, ratio) => { const c = sizeCanvas(cv, ratio); scene(c.ctx, viewCam(c.W, c.H, sim, mode, L.side), S, true); };
@@ -546,6 +565,7 @@ async function init() {
   settings = await store.loadSettings();
   freeView = settings.freeView === 'chase' ? 'chase' : 'fpv';
   freeChannels = normChannels(settings.freeChannels); buildChSwitch();
+  forceLayers = { thrust: settings.forceLayers?.thrust !== false, comps: settings.forceLayers?.comps !== false, net: settings.forceLayers?.net !== false }; buildLegend();
   updateGpSliders(); updateGpUi();
   buildSpeed(); selectLesson(CLASS[0]);
   requestAnimationFrame(frame);

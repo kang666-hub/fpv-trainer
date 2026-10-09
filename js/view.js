@@ -1,5 +1,6 @@
 // 3D 繪圖、搖桿、高度圖。只畫圖，不持有模擬狀態（狀態由 app.js 傳入）。
 import { HOVER, D2R, V, M } from './core.js';
+import { forces } from './forces.js';
 
 let chase = null; // 追尾／跟隨鏡頭的平滑狀態
 export function resetChase() { chase = null; }
@@ -67,7 +68,7 @@ function poly(ctx, cam, pts, color, w, dash) {
   ctx.beginPath(); for (let i = 1; i < pts.length; i++) seg(ctx, cam, pts[i - 1], pts[i]);
   ctx.setLineDash(dash || []); ctx.strokeStyle = color; ctx.lineWidth = w; ctx.stroke(); ctx.setLineDash([]);
 }
-function drawDrone(ctx, cam, sim) {
+function drawDrone(ctx, cam, sim, layers) {
   const R = sim.R, p = sim.p, xb = M.col(R, 0), yb = M.col(R, 1), zb = M.col(R, 2);
   const at = (x, y, z) => V.add(p, V.mul(xb, x), V.mul(yb, y), V.mul(zb, z));
   // 地面影子＋高度線
@@ -84,17 +85,39 @@ function drawDrone(ctx, cam, sim) {
   line(ctx, cam, at(0.05, 0, 0.04), at(0.55, 0, 0.12), '#ff6a1f', 2.5); // 鏡頭方向
   // 機身上方：固定長度的半透明細線，油門歸零（推力箭頭消失）或倒置時也看得出機身朝向
   line(ctx, cam, p, V.add(p, V.mul(zb, 0.6)), 'rgba(255,214,170,0.5)', 2);
-  // 推力與垂直分量
-  const L0 = 1.3, Lt = sim.st.thr / HOVER * L0;
-  line(ctx, cam, p, V.add(p, V.mul(zb, Lt)), '#ff6a1f', 3);
-  line(ctx, cam, p, V.add(p, [0, 0, Lt * zb[2]]), '#3fd0e0', 3);
-  // 水平分力（紫）：推力投影到水平面；虛線把推力、垂直分力、水平分力連成平行四邊形
-  const tip = V.add(p, V.mul(zb, Lt)), vt = V.add(p, [0, 0, Lt * zb[2]]), ht = V.add(p, [Lt * zb[0], Lt * zb[1], 0]);
-  line(ctx, cam, p, ht, '#b78cff', 3);
-  poly(ctx, cam, [tip, vt], 'rgba(255,255,255,0.3)', 1, [3, 3]);
-  poly(ctx, cam, [tip, ht], 'rgba(255,255,255,0.3)', 1, [3, 3]);
-  const tick = V.add(p, [0, 0, L0]), hd = V.norm(V.cross([0, 0, 1], cam.f).map((v) => v || 0.001));
-  line(ctx, cam, V.add(tick, V.mul(hd, -0.28)), V.add(tick, V.mul(hd, 0.28)), '#ffffff', 2);
+  // 力的箭頭：全部用 forces.js 的數字（單位 g），1g = 懸停推力的長度 L0
+  const Fz = forces(sim), L0 = 1.3, small = cam.W < 600, lay = layers || { thrust: true, comps: true, net: true };
+  const at0 = (v) => V.add(p, V.mul(v, L0)), used = [];
+  arrow(ctx, cam, p, V.add(p, [0, 0, -L0]), '#ffffff', 2);                                   // 重力 1g，往下
+  if (lay.comps) {
+    const vt = at0(Fz.vertical), ht = at0(Fz.horizontal), tip = at0(Fz.thrust);
+    poly(ctx, cam, [tip, vt], 'rgba(255,255,255,0.3)', 1, [3, 3]);
+    poly(ctx, cam, [tip, ht], 'rgba(255,255,255,0.3)', 1, [3, 3]);
+    if (Fz.verticalMag > 0.05) arrow(ctx, cam, p, vt, '#3fd0e0', 3, small ? '' : fmtG(Fz.verticalMag), '#3fd0e0', used);
+    if (Fz.horizontalMag > 0.05) arrow(ctx, cam, p, ht, '#b78cff', 3, small ? '' : fmtG(Fz.horizontalMag), '#b78cff', used);
+  }
+  if (lay.thrust && Fz.thrustMag > 0.05) arrow(ctx, cam, p, at0(Fz.thrust), '#ff6a1f', 3, fmtG(Fz.thrustMag), '#ff9a5c', used);
+  if (lay.net && Fz.netMag >= 0.05) arrow(ctx, cam, p, at0(Fz.net), '#ffd23f', 4, fmtG(Fz.netMag), '#ffd23f', used);
+}
+const fmtG = (g) => g.toFixed(1) + 'g';
+// 箭頭（線＋跟著方向的三角箭頭頭）＋尖端旁的數值標籤（暗色描邊）；used 記錄已放的標籤位置，太近就往下錯開
+function arrow(ctx, cam, a, b, color, w, label, labelColor, used) {
+  line(ctx, cam, a, b, color, w);
+  const A = proj(cam, a), B = proj(cam, b); if (!A || !B) return;
+  const dx = B[0] - A[0], dy = B[1] - A[1], len = Math.hypot(dx, dy); if (len < 5) return;
+  const ux = dx / len, uy = dy / len, hs = Math.min(len * 0.6, 5 + w * 2.2);
+  ctx.beginPath(); ctx.moveTo(B[0] + ux * hs * 0.4, B[1] + uy * hs * 0.4);
+  ctx.lineTo(B[0] - ux * hs * 0.8 - uy * hs * 0.5, B[1] - uy * hs * 0.8 + ux * hs * 0.5);
+  ctx.lineTo(B[0] - ux * hs * 0.8 + uy * hs * 0.5, B[1] - uy * hs * 0.8 - ux * hs * 0.5);
+  ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+  if (!label) return;
+  const fs = Math.max(10, Math.min(13, cam.W / 55));
+  let x = B[0] + ux * 12, y = B[1] + uy * 12;
+  for (let i = 0; i < 4 && used.some((o) => Math.abs(o[0] - x) < 30 && Math.abs(o[1] - y) < fs + 2); i++) y += fs + 3;
+  used.push([x, y]);
+  ctx.save(); ctx.font = `600 ${fs}px "JetBrains Mono",ui-monospace,monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(8,10,13,0.9)'; ctx.strokeText(label, x, y);
+  ctx.fillStyle = labelColor || color; ctx.fillText(label, x, y); ctx.restore();
 }
 // 示範的參照物：水平虛線（進場／改出高度）、兩線之間的 Δh、同高的參照塔。座標都在 y=0 的飛行面上
 function drawMarks(ctx, cam, M) {
@@ -126,7 +149,7 @@ export function scene(ctx, cam, S, withDrone) {
   if (S.ghost.length) poly(ctx, cam, S.ghost, 'rgba(255,255,255,0.4)', 1.5, [6, 6]);
   if (S.trail.length > 1) poly(ctx, cam, S.trail, 'rgba(255,106,31,0.55)', 2);
   if (S.marks) drawMarks(ctx, cam, S.marks);
-  if (withDrone) drawDrone(ctx, cam, sim);
+  if (withDrone) drawDrone(ctx, cam, sim, S.layers);
   poles.filter((o) => o.z < dz).sort((a, b) => b.z - a.z).forEach((o) => drawPole(ctx, cam, o.pp));
 }
 // 旁觀鏡頭設定在各示範的 side 欄位（{follow:[...]} 跟隨 或 {pos, look} 固定）；自由練習只用追尾
