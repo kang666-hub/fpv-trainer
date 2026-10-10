@@ -190,7 +190,6 @@ const B3 = {
 
 // B4 Yaw 主導轉彎：機頭相對路線朝圓心偏 delta。delta 越大，Roll 越少、Yaw 越多；平轉時機頭幾乎就是推力水平分量的方向
 const B4_A = { T0: 1.0, R: 8, V: 7, z: 3, ang: Math.PI, k: 1, rt: 0.9, softA: true };
-const B4_B = { T0: 1.0, R: 7, V: 7, z: 3, ang: Math.PI, k: 0.5, rt: 0.7, softA: true };
 const B4_Y = { T0: 1.0, level: 0.4, yawEnd: 1.2, rate: 0.7, z: 3 };
 // 機頭跟著「推力水平分量」的方向：k=1 時機頭正對推力（平轉，幾乎不用 Roll），k 越小越接近一般協調轉彎（機頭朝路線）。
 // 每步算出控制器想要的水平加速度方向，限制機頭轉速（≤ 300°/s）避免瞬間跳動。
@@ -209,22 +208,31 @@ function followNose(sim, ref, mem, k) {
   return { ...ref, psi, psid: mem.psid ?? ref.psid };
 }
 const tcOf = (P) => P.ang / (P.V / P.R);
+// 微傾角過彎（Roll＋Yaw）：速度約 8 m/s、坡度約 20°。先打 Roll 起坡度，再打 Yaw，之後兩桿停在平衡位置，機頭一直跟著修；不刻意打 Pitch
+const B4_SMALL = { T0: 1.0, R: 16.5, V: 8, z: 4, ang: 0.8 * Math.PI, softA: true, rt: 0.5 };
+const B4_SMALL_ON = { yaw: 0.3, balance: 0.7 }; // 相對進彎時間：Yaw 在 Roll 之後 0.3 秒才放行；0.7 秒後兩桿進入平衡
 const B4 = {
-  id: 'B4', dur: 7, cam: 'chase', side: { pos: [-15, -17, 11], look: [0, 0, 2] },
-  variants: [{ key: 'flat', P: B4_A }, { key: 'bank', P: B4_B }, { key: 'yawonly' }],
+  id: 'B4', dur: 8, cam: 'chase', side: { pos: [-15, -17, 11], look: [0, 0, 2] },
+  variants: [{ key: 'small', P: B4_SMALL, on: B4_SMALL_ON }, { key: 'yawonly' }, { key: 'smallnocomp', P: B4_SMALL, on: B4_SMALL_ON, noComp: true }],
   start: (sim, v) => startFromRef(sim, (t) => refTurn(t, (v && v.P) || B4_A)),
   ctrl: (v, sim, t, mem) => {
-    if (v.key !== 'yawonly') return { ...track(sim, followNose(sim, refTurn(t, v.P), mem, v.P.k)), phase: null };
+    if (v.key !== 'yawonly') {
+      const P = v.P, c = { ...track(sim, refTurn(t, P)), phase: null }, rel = t - P.T0, exit = t >= P.T0 + tcOf(P);
+      if (t < P.T0) { mem.thr0 = c.thr; return c; }
+      if (!exit && rel < v.on.yaw) c.yaw = 0;               // 先 Roll、再 Yaw
+      if (v.noComp) c.thr = mem.thr0;                       // 對照：油門留在進彎前的值，慢慢掉高
+      return c;
+    }
     if (t < B4_Y.T0) return { ...track(sim, refTurn(t, B4_A)), phase: null };
     // 對照：推力改垂直（撐平），只打 Yaw —— 機頭轉了，路線不會轉
     const rel = t - B4_Y.T0, lv = levelSticks(sim);
     const thr = clamp((G + 4 * (B4_Y.z - sim.p[2]) - 3 * sim.v[2]) / (TMAX * Math.max(0.3, sim.R[8])), 0, 1);
     return { thr, roll: lv.roll, pitch: lv.pitch, yaw: rel >= B4_Y.level && rel < B4_Y.yawEnd ? B4_Y.rate : 0, phase: null };
   },
-  ghost: (v) => (v.key === 'yawonly' ? [[-7, -8, 3], [30, -8, 3]] : sampleRef((t) => refTurn(t, v.P), 0, 6.5)),
+  ghost: (v) => (v.key === 'yawonly' ? [[-7, -8, 3], [30, -8, 3]] : sampleRef((t) => refTurn(t, v.P), 0, 7.5)),
   stages: (v) => (v.key === 'yawonly'
-    ? [B4_Y.T0, B4_Y.T0 + B4_Y.level, B4_Y.T0 + B4_Y.yawEnd, 7]
-    : [v.P.T0, v.P.T0 + v.P.rt, v.P.T0 + tcOf(v.P), 7]),
+    ? [B4_Y.T0, B4_Y.T0 + B4_Y.level, B4_Y.T0 + B4_Y.yawEnd, 8]
+    : [v.P.T0, v.P.T0 + v.on.yaw, v.P.T0 + v.on.balance, v.P.T0 + tcOf(v.P), 8]),
 };
 
 // B5 破 S：（可選）微拉高 → 收油半滾成倒置 → 半圈穿過下方 → 改出

@@ -95,13 +95,24 @@ test('B3 steep：Roll＋油門同時 → Pitch → Yaw（各晚 ≥ 0.25 秒）�
   assert.ok(zc0 - zc15 >= 2, `1.5 秒只掉 ${(zc0 - zc15).toFixed(2)} m`);
 });
 
-test('B4：飛法 A 坡度 ≤ 15° 且航向變化 ≥ 90°；飛法 B 坡度 30–45°；對照航向轉 ≥ 90° 但路線方向變化 < 30°', () => {
-  const bankOf = (r) => Math.max(...r.rec.map((x) => Math.abs(euler(x.R).roll)));
-  const a = run('B4', 'flat');
-  assert.ok(bankOf(a) <= 15, `平轉最大坡度 ${bankOf(a).toFixed(1)}°`);
-  assert.ok(headingChange(a) >= 90, '平轉航向變化不足');
-  const b = run('B4', 'bank');
-  assert.ok(bankOf(b) >= 30 && bankOf(b) <= 45, `大坡度版最大坡度 ${bankOf(b).toFixed(1)}°`);
+test('B4 small（微傾角過彎）：Roll 比 Yaw 早 ≥ 0.15 秒；彎中坡度 15–25°、|Pitch| < 3%、|Yaw| > |Roll|；高度變化 < 0.5m；航向變化 ≥ 90°', () => {
+  const r = run('B4', 'small'), on = (ch) => r.rec.find((x) => x.t >= 0.99 && Math.abs(x[ch]) > 0.05)?.t;
+  const tr = on('roll'), ty = on('yaw');
+  assert.ok(ty - tr >= 0.15, `Yaw 只比 Roll 晚 ${(ty - tr).toFixed(3)} 秒`);
+  const P = { T0: 1.0, R: 16.5, V: 8, ang: 0.8 * Math.PI }, Tc = P.ang / (P.V / P.R), turn = r.rec.filter((x) => x.t >= P.T0 + 0.7 && x.t < P.T0 + Tc);
+  const avg = (f) => turn.reduce((s, x) => s + f(x), 0) / turn.length;
+  const bank = avg((x) => Math.abs(euler(x.R).roll));
+  assert.ok(bank >= 15 && bank <= 25, `彎中平均坡度 ${bank.toFixed(1)}°`);
+  assert.ok(avg((x) => Math.abs(x.pitch)) < 0.03, `|Pitch| ${(avg((x) => Math.abs(x.pitch)) * 100).toFixed(1)}%`);
+  assert.ok(avg((x) => Math.abs(x.yaw)) > avg((x) => Math.abs(x.roll)), 'Yaw 應大於 Roll');
+  assert.ok(Math.max(...zs(r)) - Math.min(...zs(r)) < 0.5, `高度變化 ${(Math.max(...zs(r)) - Math.min(...zs(r))).toFixed(2)} m`);
+  assert.ok(headingChange(r) >= 90, `航向變化 ${headingChange(r).toFixed(0)}°`);
+  assert.equal(r.touched, false);
+});
+
+test('B4 smallnocomp：3 秒內掉高 > 0.5m；yawonly：航向轉 ≥ 90° 但路線方向變化 < 30°', () => {
+  const r = run('B4', 'smallnocomp'), z0 = r.rec[0].p[2], z3 = r.rec.find((x) => x.t >= 1.0 + 3).p[2];
+  assert.ok(z0 - z3 > 0.5, `3 秒只掉 ${(z0 - z3).toFixed(2)} m`);
   const c = run('B4', 'yawonly');
   assert.ok(headingChange(c) >= 90, '只打 Yaw 的航向變化不足');
   assert.ok(pathDirChange(c, 1.0) < 30, `路線方向變化 ${pathDirChange(c, 1.0).toFixed(0)}°`);
