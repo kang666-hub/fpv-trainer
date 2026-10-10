@@ -76,9 +76,11 @@ function fillPoly(ctx, cam, pts, fill, stroke, sw) {
   if (fill) { ctx.fillStyle = fill; ctx.fill(); }
   if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = sw || 1; ctx.stroke(); }
 }
-function drawBody(ctx, cam, sim, at) {
+function drawBody(ctx, cam, sim, at0) {
+  const sc = Math.max(1, Math.min(2, 600 / cam.W)); // 手機寬度：飛機模型隨螢幕寬度放大
+  const at = (x, y, z) => at0(x * sc, y * sc, z * sc);
   const p = sim.p, zb = M.col(sim.R, 2), dist = Math.max(0.5, V.dot(V.sub(p, cam.c), cam.f));
-  const px = 2 * BODY.A * cam.F / dist;                         // 機體在螢幕上的寬度（像素）
+  const px = 2 * BODY.A * sc * cam.F / dist;                         // 機體在螢幕上的寬度（像素）
   const top = V.dot(zb, V.sub(cam.c, p)) > 0;                    // 鏡頭看到的是頂面還是底面
   const motors = [[BODY.A, -BODY.A, 1], [BODY.A, BODY.A, 1], [-BODY.A, -BODY.A, 0], [-BODY.A, BODY.A, 0]];
   const plate = top ? '#eef1f5' : '#2c3037', armC = top ? '#d7dbe0' : '#5a616b';
@@ -88,7 +90,7 @@ function drawBody(ctx, cam, sim, at) {
     ctx.beginPath(); ctx.arc(c[0], c[1], Math.max(2, px * 0.12), 0, 7); ctx.fillStyle = plate; ctx.fill(); return;
   }
   const spin = performance.now() / 1000 * (6 + 50 * sim.st.thr);   // 槳葉轉動：油門越大轉越快
-  const armW = Math.max(1.5, 0.05 * cam.F / dist);
+  const armW = Math.max(1.5, 0.05 * sc * cam.F / dist);
   for (const [x, y] of motors) line(ctx, cam, at(0, 0, 0), at(x, y, 0), armC, armW);
   for (const [x, y, front] of motors) { // 槳盤：半透明圓盤＋兩片旋轉的槳葉刻線
     const disc = [], ring = front ? '#ff6a1f' : '#aab2bb', alpha = 0.10 + 0.20 * sim.st.thr;
@@ -116,21 +118,22 @@ function drawDrone(ctx, cam, sim, layers) {
   line(ctx, cam, p, V.add(p, V.mul(zb, 0.6)), 'rgba(255,214,170,0.5)', 2);
   // 力的箭頭：全部用 forces.js 的數字（單位 g），1g = 懸停推力的長度 L0
   const Fz = forces(sim), L0 = 1.3, small = cam.W < 600, lay = layers || { thrust: true, comps: true, net: true };
-  const at0 = (v) => V.add(p, V.mul(v, L0)), used = [];
+  const at0 = (v) => V.add(p, V.mul(v, L0)), used = [];   // used：收集標籤，箭頭都畫完再統一放（合力優先）
   arrow(ctx, cam, p, V.add(p, [0, 0, -L0]), '#ffffff', 2);                                   // 重力 1g，往下
   if (lay.comps) {
     const vt = at0(Fz.vertical), ht = at0(Fz.horizontal), tip = at0(Fz.thrust);
     poly(ctx, cam, [tip, vt], 'rgba(255,255,255,0.3)', 1, [3, 3]);
     poly(ctx, cam, [tip, ht], 'rgba(255,255,255,0.3)', 1, [3, 3]);
-    if (Fz.verticalMag > 0.05) arrow(ctx, cam, p, vt, '#3fd0e0', 3, small ? '' : fmtG(Fz.verticalMag), '#3fd0e0', used);
-    if (Fz.horizontalMag > 0.05) arrow(ctx, cam, p, ht, '#b78cff', 3, small ? '' : fmtG(Fz.horizontalMag), '#b78cff', used);
+    if (Fz.verticalMag > 0.05) arrow(ctx, cam, p, vt, '#3fd0e0', 3, small ? '' : fmtG(Fz.verticalMag), '#3fd0e0', used, 2, Fz.verticalMag);
+    if (Fz.horizontalMag > 0.05) arrow(ctx, cam, p, ht, '#b78cff', 3, small ? '' : fmtG(Fz.horizontalMag), '#b78cff', used, 2, Fz.horizontalMag);
   }
-  if (lay.thrust && Fz.thrustMag > 0.05) arrow(ctx, cam, p, at0(Fz.thrust), '#ff6a1f', 3, fmtG(Fz.thrustMag), '#ff9a5c', used);
-  if (lay.net && Fz.netMag >= 0.05) arrow(ctx, cam, p, at0(Fz.net), '#ffd23f', 4, fmtG(Fz.netMag), '#ffd23f', used);
+  if (lay.thrust && Fz.thrustMag > 0.05) arrow(ctx, cam, p, at0(Fz.thrust), '#ff6a1f', 3, fmtG(Fz.thrustMag), '#ff9a5c', used, 1, Fz.thrustMag);
+  if (lay.net && Fz.netMag >= 0.05) arrow(ctx, cam, p, at0(Fz.net), '#ffd23f', 4, fmtG(Fz.netMag), '#ffd23f', used, 0, Fz.netMag);
+  flushLabels(ctx, cam, used, small);
 }
 const fmtG = (g) => g.toFixed(1) + 'g';
 // 箭頭（線＋跟著方向的三角箭頭頭）＋尖端旁的數值標籤（暗色描邊）；used 記錄已放的標籤位置，太近就往下錯開
-function arrow(ctx, cam, a, b, color, w, label, labelColor, used) {
+function arrow(ctx, cam, a, b, color, w, label, labelColor, used, prio = 1, mag = 1) {
   line(ctx, cam, a, b, color, w);
   const A = proj(cam, a), B = proj(cam, b); if (!A || !B) return;
   const dx = B[0] - A[0], dy = B[1] - A[1], len = Math.hypot(dx, dy); if (len < 5) return;
@@ -139,14 +142,22 @@ function arrow(ctx, cam, a, b, color, w, label, labelColor, used) {
   ctx.lineTo(B[0] - ux * hs * 0.8 - uy * hs * 0.5, B[1] - uy * hs * 0.8 + ux * hs * 0.5);
   ctx.lineTo(B[0] - ux * hs * 0.8 + uy * hs * 0.5, B[1] - uy * hs * 0.8 - ux * hs * 0.5);
   ctx.closePath(); ctx.fillStyle = color; ctx.fill();
-  if (!label) return;
-  const fs = Math.max(10, Math.min(13, cam.W / 55));
-  let x = B[0] + ux * 12, y = B[1] + uy * 12;
-  for (let i = 0; i < 4 && used.some((o) => Math.abs(o[0] - x) < 30 && Math.abs(o[1] - y) < fs + 2); i++) y += fs + 3;
-  used.push([x, y]);
-  ctx.save(); ctx.font = `600 ${fs}px "JetBrains Mono",ui-monospace,monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(8,10,13,0.9)'; ctx.strokeText(label, x, y);
-  ctx.fillStyle = labelColor || color; ctx.fillText(label, x, y); ctx.restore();
+  if (label && mag >= 0.3 && used) used.push({ x: B[0] + ux * 12, y: B[1] + uy * 12, text: label, color: labelColor || color, prio }); // 箭頭長度 < 0.3g 不標
+}
+// 數值標籤（暗色描邊）：合力優先；桌機太近就往下錯開，手機（small）太近就只留優先的那個
+function flushLabels(ctx, cam, labels, small) {
+  const fs = Math.max(10, Math.min(13, cam.W / 55)), placed = [];
+  ctx.save(); ctx.font = `600 ${fs}px "JetBrains Mono",ui-monospace,monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  for (const l of labels.sort((p, q) => p.prio - q.prio)) {
+    let { x, y } = l;
+    const clash = () => placed.some((o) => Math.abs(o[0] - x) < 34 && Math.abs(o[1] - y) < fs + 2);
+    if (small) { if (clash()) continue; }
+    else for (let i = 0; i < 4 && clash(); i++) y += fs + 3;
+    placed.push([x, y]);
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(8,10,13,0.9)'; ctx.strokeText(l.text, x, y);
+    ctx.fillStyle = l.color; ctx.fillText(l.text, x, y);
+  }
+  ctx.restore();
 }
 // 示範的參照物：水平虛線（進場／改出高度）、兩線之間的 Δh、同高的參照塔。座標都在 y=0 的飛行面上
 function drawMarks(ctx, cam, M) {
@@ -190,11 +201,12 @@ export function viewCam(W, H, sim, mode, side) {
     chase.h = V.norm(V.add(V.mul(chase.h, 0.94), V.mul(h, 0.06)));
     const target = V.add(sim.p, V.mul(chase.h, -6), [0, 0, 2.4]);
     chase.c = V.add(V.mul(chase.c, 0.88), V.mul(target, 0.12));
-    return makeCam(chase.c, V.add(sim.p, V.mul(chase.h, 1.5)), W, H, 62);
+    return makeCam(chase.c, V.add(sim.p, V.mul(chase.h, 1.5)), W, H, W < 600 ? 50 : 62);
   }
   const s = side || { follow: [-3, -12, 5] };
-  if (s.follow) { if (!chase) chase = { c: V.add(sim.p, s.follow) }; chase.c = V.add(V.mul(chase.c, 0.9), V.mul(V.add(sim.p, s.follow), 0.1)); return makeCam(chase.c, V.add(chase.c, V.mul(s.follow, -1)), W, H, 58); }
-  return makeCam(s.pos, s.look, W, H, 58);
+  const fov = W < 600 ? 46 : 58;  // 手機寬度：鏡頭拉近，飛機在畫面上比較大
+  if (s.follow) { const goal = V.add(sim.p, s.follow, V.mul(sim.v, s.lead ?? 0.17)); if (!chase) chase = { c: goal }; chase.c = V.add(V.mul(chase.c, 0.9), V.mul(goal, 0.1)); return makeCam(chase.c, V.add(chase.c, V.mul(s.follow, -1)), W, H, fov); } // lead：往速度方向預先移動一點，高速時飛機和力的箭頭才不會被畫面邊緣切掉
+  return makeCam(s.pos, s.look, W, H, fov);
 }
 
 

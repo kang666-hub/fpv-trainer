@@ -54,17 +54,20 @@ const TELE = [['alt', '高度', 'm'], ['vz', '垂直速度', 'm/s'], ['spd', '�
 $('tele').innerHTML = TELE.map(([id, k, u]) => `<div class="t"><div class="k">${k}</div><div class="v"><span id="t_${id}">0</span><small>${u}</small></div><div class="sub"${id === 'spd' ? ' id="t_kmh">0 km/h' : '>'}</div></div>`).join('');
 
 // ===== 圖例（可點的圖層開關）=====
+let legendOpen = false; // 手機寬度：圖例收成一個按鈕，點開才顯示（桌機一直展開）
 function buildLegend() {
   const t = legendText, el = $('legend');
   if (!t) { el.innerHTML = ''; return; }
   const bar = (c) => `<i style="background:${c}"></i>`;
   const tog = (k, bars, text, tip) => `<button type="button" class="lg" data-k="${k}" aria-pressed="${forceLayers[k]}"${tip ? ` title="${esc(tip)}"` : ''}>${bars}${esc(text)}</button>`;
-  el.innerHTML = `<span>${bar('rgba(255,214,170,.5)')}${esc(t.body)}</span>`
+  el.classList.toggle('open', legendOpen);
+  el.innerHTML = `<button type="button" class="lg-toggle" aria-expanded="${legendOpen}">${esc(t.title || '')}</button><div class="lg-body"><span>${bar('rgba(255,214,170,.5)')}${esc(t.body)}</span>`
     + tog('thrust', bar('var(--accent)'), t.thrust)
     + tog('comps', bar('var(--cyan)') + bar('var(--violet)'), t.comps)
     + tog('net', bar('#ffd23f'), t.net, t.netNote)
-    + `<span>${bar('#fff')}${esc(t.gravity)}</span>`;
-  el.querySelectorAll('button').forEach((b) => {
+    + `<span>${bar('#fff')}${esc(t.gravity)}</span></div>`;
+  el.querySelector('.lg-toggle').onclick = () => { legendOpen = !legendOpen; buildLegend(); };
+  el.querySelectorAll('.lg-body button').forEach((b) => {
     b.onclick = async () => { const k = b.dataset.k; forceLayers = { ...forceLayers, [k]: !forceLayers[k] }; buildLegend(); settings = await store.saveSettings({ forceLayers }); };
   });
 }

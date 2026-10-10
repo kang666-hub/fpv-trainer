@@ -223,6 +223,15 @@ test('B5a messy：修正打桿次數 > 1 或最後航向偏差 > 10°', () => {
   assert.ok(b.rollN > 1 || Math.abs(b.headingDiff - 180) > 10, `Roll 打桿 ${b.rollN} 次、航向相差 ${b.headingDiff.toFixed(1)}°`);
 });
 
+test('lessons.json：B2 有 8 個變體（4 飛法＋4 對照）、B3／B4 的變體 key、B5a 在 B5 之前', () => {
+  const b2 = jsonLevels.find((l) => l.id === 'B2');
+  assert.deepEqual(b2.variants.map((v) => v.key), ['dive', 'wide', 'pitchonly', 'jet', 'short', 'balloon', 'slam', 'coupled']);
+  assert.deepEqual(b2.variants.map((v) => v.kind), ['style', 'style', 'style', 'style', 'contrast', 'contrast', 'contrast', 'contrast']);
+  assert.deepEqual(jsonLevels.find((l) => l.id === 'B3').variants.map((v) => v.key), ['coord', 'nocomp', 'steep', 'toosteep']);
+  assert.deepEqual(jsonLevels.find((l) => l.id === 'B4').variants.map((v) => v.key), ['small', 'yawonly', 'smallnocomp']);
+  assert.ok(jsonLevels.findIndex((l) => l.id === 'B5a') === jsonLevels.findIndex((l) => l.id === 'B5') - 1);
+});
+
 test('A2 8 字：先轉一整圈（航向累計 ≥ 340°）再反向轉回（結束航向回到起點）且高度穩定', () => {
   const r = run('A2', 'eight'), z = zs(r);
   assert.ok(headingChange(r) >= 340, `航向累計 ${headingChange(r).toFixed(0)}°`);

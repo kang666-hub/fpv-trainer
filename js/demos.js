@@ -531,7 +531,7 @@ const S5 = {
 // endWhen(sim, t, v, ctl)：回傳 true 就提早結束這一輪（這裡是掉到 5m 以下）。readout 回傳即時讀數，curve 描述小圖（文字在 lessons.json）。
 const S6_TILT_MAX = 80;
 const S6 = {
-  id: 'S6', dur: 6, cam: 'side', side: { follow: [3, -12, 1] },
+  id: 'S6', dur: 6, cam: 'side', side: { follow: [3, -15, 1] },
   controls: [{ key: 'tilt', min: 0, max: S6_TILT_MAX, step: 1, default: 30 }],
   variants: [{ key: 'hold' }, { key: 'fixed' }],
   start: (sim) => { sim.reset([0, 0, 15], [0, 0, 0], yawOnly(0)); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; },
