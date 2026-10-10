@@ -194,6 +194,35 @@ test('B5 拉桿穿過下半圈：Pitch 為主（平均 |Pitch| > 10%，|Roll|、
   }
 });
 
+// ===== B5a 原地破 S =====
+function b5aMetrics(key) {
+  const r = run('B5a', key), rec = r.rec, m = r.mem.marks, count = (ch) => { let n = 0, on = false; for (const x of rec) { const a = Math.abs(x[ch]) > 0.05; if (a && !on) n++; on = a; } return n; };
+  const angle = (ch) => rec.reduce((s, x) => s + Math.abs(x[ch]) * 500 / 240, 0);
+  const last = rec.filter((x) => x.t >= rec.at(-1).t - 1).map((x) => x.p[2]), e0 = euler(rec[0].R), e1 = euler(rec.at(-1).R);
+  let dh = e1.yaw - e0.yaw; dh = ((dh + 540) % 360) - 180;
+  return { r, m, rec, rollAngle: angle('roll'), pitchAngle: angle('pitch'), rollN: count('roll'), pitchN: count('pitch'), both: rec.filter((x) => Math.abs(x.roll) > 0.05 && Math.abs(x.pitch) > 0.05).length,
+    lastRange: Math.max(...last) - Math.min(...last), e1, headingDiff: Math.abs(dh) };
+}
+
+test('B5a 兩個飛法：Roll／Pitch 各 180° ± 3°、各只有一次推出去再回中、不同時打；最後水平、航向相反、不觸地、最後 1 秒高度變化 < 0.2m', () => {
+  for (const key of ['rollR_pull', 'rollL_push']) {
+    const b = b5aMetrics(key);
+    assert.ok(Math.abs(b.rollAngle - 180) <= 3, `${key} Roll 轉角 ${b.rollAngle.toFixed(1)}°`);
+    assert.ok(Math.abs(b.pitchAngle - 180) <= 3, `${key} Pitch 轉角 ${b.pitchAngle.toFixed(1)}°`);
+    assert.equal(b.rollN, 1, `${key} Roll 打桿次數`); assert.equal(b.pitchN, 1, `${key} Pitch 打桿次數`);
+    assert.equal(b.both, 0, `${key} Roll 與 Pitch 同時 > 5%`);
+    assert.ok(Math.abs(b.e1.roll) < 3 && Math.abs(b.e1.pitch) < 3, `${key} 最後姿態 roll ${b.e1.roll.toFixed(1)} pitch ${b.e1.pitch.toFixed(1)}`);
+    assert.ok(Math.abs(b.headingDiff - 180) <= 5, `${key} 航向相差 ${b.headingDiff.toFixed(1)}°`);
+    assert.equal(b.r.touched, false, `${key} 觸地`);
+    assert.ok(b.lastRange < 0.2, `${key} 最後 1 秒高度變化 ${b.lastRange.toFixed(3)} m`);
+  }
+});
+
+test('B5a messy：修正打桿次數 > 1 或最後航向偏差 > 10°', () => {
+  const b = b5aMetrics('messy');
+  assert.ok(b.rollN > 1 || Math.abs(b.headingDiff - 180) > 10, `Roll 打桿 ${b.rollN} 次、航向相差 ${b.headingDiff.toFixed(1)}°`);
+});
+
 test('A2 8 字：先轉一整圈（航向累計 ≥ 340°）再反向轉回（結束航向回到起點）且高度穩定', () => {
   const r = run('A2', 'eight'), z = zs(r);
   assert.ok(headingChange(r) >= 340, `航向累計 ${headingChange(r).toFixed(0)}°`);
@@ -257,7 +286,7 @@ test('lessons.json v2：必填欄位齊全，variant kind 只能是 style／cont
     });
   }
   assert.deepEqual(data.tiers[0].levels.map((l) => l.id), ['S1', 'S2', 'S3', 'S4', 'S5', 'S6']);
-  assert.deepEqual(data.tiers[1].levels.map((l) => l.id), ['B1', 'B2', 'B3', 'B4', 'B5']);
+  assert.deepEqual(data.tiers[1].levels.map((l) => l.id), ['B1', 'B2', 'B3', 'B4', 'B5a', 'B5']);
   assert.deepEqual(data.tiers[2].levels.map((l) => l.id), ['A1', 'A2', 'A3', 'A4', 'A5']);
 });
 

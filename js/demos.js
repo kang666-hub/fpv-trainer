@@ -327,6 +327,55 @@ const B5 = {
   stages: (v) => { const m = probe(B5, v).mem.marks; return v.pullUp ? [m.p1, m.p2, m.p3, m.p4, B5.dur] : [m.p1, m.p3, m.p4, B5.dur]; },
 };
 
+// B5a 原地破 S（退階）：10m 懸停 → Roll 翻 180°（一桿到位）→ 歸零（搖桿全回中）→ Pitch 翻 180° 回正（一桿到位）→ 補油接住。
+// 最後機頭朝向與開始相反。目的：把兩次 180° 練乾淨，畫面一次到位。
+const B5A = { z: 10, t0: 0.6, stick: 0.85, zero: 0.12, thrFlip: 0.05, zTarget: 6 };
+// 把某一軸（key）轉過 target 度：mem 記累計角度，轉到剛好 target 就回 0。dir = ±1
+function b5aPulse(mem, key, target, dir) {
+  const a = (mem.acc = mem.acc || {});
+  a[key] = a[key] || 0;
+  const st = Math.min(B5A.stick, Math.max(0, (target - a[key]) / (500 * DT)));
+  a[key] += st * 500 * DT;
+  return { stick: dir * st, done: target - a[key] < 1e-6 };
+}
+const B5a = {
+  id: 'B5a', dur: 7, cam: 'chase', side: { follow: [3, -12, 2] }, fullTrail: true,
+  variants: [{ key: 'rollR_pull', rollDir: 1, pitchDir: -1 }, { key: 'rollL_push', rollDir: -1, pitchDir: 1 }, { key: 'messy', rollDir: 1, pitchDir: -1, messy: true }],
+  start: (sim) => { sim.reset([0, 0, B5A.z], [0, 0, 0], yawOnly(0)); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; },
+  ctrl: (v, sim, t, mem) => {
+    const m = (mem.marks = mem.marks || {}), c = (o) => ({ thr: B5A.thrFlip, roll: 0, pitch: 0, yaw: 0, phase: null, ...o });
+    const lv = levelSticks(sim), t0 = v.messy ? 0.9 : B5A.t0;
+    if (v.messy && t < t0) { // 進動作前先往翻轉方向飄一下、抖一下
+      const r = t > 0.2 && t < 0.34 ? 0.35 * v.rollDir : t > 0.46 && t < 0.56 ? -0.25 * v.rollDir : t > 0.56 && t < 0.66 ? 0.25 * v.rollDir : 0;
+      return c({ thr: HOVER, roll: r + (r === 0 ? lv.roll * 0.3 : 0) });
+    }
+    if (t < t0) return c({ thr: HOVER });
+    if (!m.roll0) m.roll0 = t;
+    if (!m.roll1) { // ① Roll 翻 180°（messy：翻過頭到約 210°，之後再修回來）
+      const r = b5aPulse(mem, 'roll', v.messy ? 210 : 180, v.rollDir);
+      if (r.done) m.roll1 = t;
+      return c({ roll: r.stick });
+    }
+    if (v.messy && !m.fix) { // 修回來：反向再打一桿（第二次 Roll 打桿）
+      const r = b5aPulse(mem, 'rollfix', 30, -v.rollDir);
+      if (r.done) m.fix = t;
+      return c({ roll: r.stick });
+    }
+    if (!m.zero1) { m.zeroT = m.zeroT ?? t; if (t - m.zeroT >= B5A.zero) m.zero1 = t; else return c({}); }  // ② 歸零：搖桿全回中，倒置
+    if (!m.pitch1) { // ③ Pitch 翻 180° 回正（messy：混進一點 Roll、沒打滿 180°）
+      const p = b5aPulse(mem, 'pitch', v.messy ? 172 : 180, v.pitchDir);
+      if (p.done) m.pitch1 = t;
+      return c({ pitch: p.stick, roll: v.messy ? 0.18 * v.rollDir : 0 });
+    }
+    // ④ 補油接住：回到懸停（機身回正後用小量修平）
+    const cosT = Math.max(0.3, sim.R[8]);
+    const thr = clamp((G + 3 * (B5A.zTarget - sim.p[2]) - 3.5 * sim.v[2]) / (TMAX * cosT), 0, 1);
+    return c({ thr, roll: lv.roll, pitch: lv.pitch });
+  },
+  ghost: () => [],
+  stages: (v) => { const m = probe(B5a, v).mem.marks; return [m.roll0, (v.messy ? m.fix : m.roll1), m.zero1, m.pitch1, B5a.dur]; },
+};
+
 // A1 繞柱刷鍋
 const A1_P = { large: { R: 6, V: 5 }, small: { R: 3, V: 3.5 }, nocomp: { R: 4, V: 4 } };
 const A1 = {
@@ -502,7 +551,7 @@ const S6 = {
   curve: { x: { key: 'tilt', min: 0, max: S6_TILT_MAX }, y: { min: 0, max: 160 }, f: (th) => thrForLevel(th).thr * 100, limit: 100, cross: Math.acos(HOVER) / D2R },
 };
 
-export const LESSONS = [S1, S2, S3, S4, S5, S6, B1, B2, B3, B4, B5, A1, A2, A3, A4];
+export const LESSONS = [S1, S2, S3, S4, S5, S6, B1, B2, B3, B4, B5a, B5, A1, A2, A3, A4];
 
 function startFromRef(sim, ref) { const r = ref(0); sim.reset(r.p, r.v, attFor(r)); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; }
 
