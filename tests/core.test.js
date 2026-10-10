@@ -128,6 +128,14 @@ test('B3 飛法：Roll 桿量 > 5% 的時間 < Pitch < Yaw', () => {
   assert.ok(tr < tp && tp < ty, `順序不對：Roll ${tr}, Pitch ${tp}, Yaw ${ty}`);
 });
 
+test('B3：示範與 lessons.json 的變體順序都是 steep, coord, nocomp, toosteep；steep 彎中最大坡度 ≥ 60°', () => {
+  const want = ['steep', 'coord', 'nocomp', 'toosteep'];
+  assert.deepEqual(lesson('B3').variants.map((v) => v.key), want);
+  assert.deepEqual(jsonLevels.find((l) => l.id === 'B3').variants.map((v) => v.key), want);
+  const r = run('B3', 'steep'), mx = Math.max(...r.rec.filter((x) => x.t >= 1.5 && x.t < 3.2).map((x) => Math.abs(euler(x.R).roll)));
+  assert.ok(mx >= 60, `最大坡度 ${mx.toFixed(1)}°`);
+});
+
 test('B3 steep：Roll＋油門同時 → Pitch → Yaw（各晚 ≥ 0.25 秒）；最低高度 ≥ 進場 − 0.5m、最後高度差 < 0.5m；彎中平均坡度 60–68°、|Pitch| > |Yaw|；toosteep 1.5 秒內掉高 ≥ 2m', () => {
   const r = run('B3', 'steep'), on = (ch) => r.rec.find((x) => Math.abs(x[ch]) > 0.05)?.t, T0 = 1.0;
   const thr0 = r.rec.find((x) => x.t >= T0 - 0.01).thr, tThr = r.rec.find((x) => x.t >= T0 && x.thr > thr0 + 0.05)?.t; // 油門「補上去」＝比進彎前高 5% 以上
@@ -227,7 +235,7 @@ test('lessons.json：B2 有 8 個變體（4 飛法＋4 對照）、B3／B4 的�
   const b2 = jsonLevels.find((l) => l.id === 'B2');
   assert.deepEqual(b2.variants.map((v) => v.key), ['dive', 'wide', 'pitchonly', 'jet', 'short', 'balloon', 'slam', 'coupled']);
   assert.deepEqual(b2.variants.map((v) => v.kind), ['style', 'style', 'style', 'style', 'contrast', 'contrast', 'contrast', 'contrast']);
-  assert.deepEqual(jsonLevels.find((l) => l.id === 'B3').variants.map((v) => v.key), ['coord', 'nocomp', 'steep', 'toosteep']);
+  assert.deepEqual(jsonLevels.find((l) => l.id === 'B3').variants.map((v) => v.key), ['steep', 'coord', 'nocomp', 'toosteep']);
   assert.deepEqual(jsonLevels.find((l) => l.id === 'B4').variants.map((v) => v.key), ['small', 'yawonly', 'smallnocomp']);
   assert.ok(jsonLevels.findIndex((l) => l.id === 'B5a') === jsonLevels.findIndex((l) => l.id === 'B5') - 1);
 });

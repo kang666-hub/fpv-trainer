@@ -177,7 +177,7 @@ function overSteepCtrl(sim, t) {
 }
 const B3 = {
   id: 'B3', dur: 8, sens: true, cam: 'chase', side: { pos: [-15, -17, 11], look: [0, 0, 2] },
-  variants: [{ key: 'coord', thrOn: B3_ON.thr }, { key: 'nocomp', thrOn: Infinity }, { key: 'steep', P: B3_STEEP, on: B3_STEEP_ON }, { key: 'toosteep', over: true }],
+  variants: [{ key: 'steep', P: B3_STEEP, on: B3_STEEP_ON }, { key: 'coord', thrOn: B3_ON.thr }, { key: 'nocomp', thrOn: Infinity }, { key: 'toosteep', over: true }], // 預設播放第一個：戰鬥機式側躺過彎
   start: (sim, v) => {
     if (v && v.over) { const r = { p: [-B3_OVER.V * B3_OVER.T0, -B3_P.R, B3_OVER.z0], v: [B3_OVER.V, 0, 0], psi: 0, psid: 0 }; sim.reset(r.p, r.v, attFor(r)); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; return; }
     const P = (v && v.P) || B3_P; startFromRef(sim, (t) => refTurn(t, P));
