@@ -242,17 +242,30 @@ test('B5 拉桿穿過下半圈：Pitch 為主（平均 |Pitch| > 10%，|Roll|、
   }
 });
 
-// ===== B5a 原地破 S =====
+// ===== B5a 原地破 S（先拉油門再翻）=====
 function b5aMetrics(key) {
   const r = run('B5a', key), rec = r.rec, m = r.mem.marks, count = (ch) => { let n = 0, on = false; for (const x of rec) { const a = Math.abs(x[ch]) > 0.05; if (a && !on) n++; on = a; } return n; };
   const angle = (ch) => rec.reduce((s, x) => s + Math.abs(x[ch]) * 500 / 240, 0);
   const last = rec.filter((x) => x.t >= rec.at(-1).t - 1).map((x) => x.p[2]), e0 = euler(rec[0].R), e1 = euler(rec.at(-1).R);
   let dh = e1.yaw - e0.yaw; dh = ((dh + 540) % 360) - 180;
+  const pull = rec.filter((x) => x.t >= m.pull0 && x.t < m.roll0), rollSeg = rec.filter((x) => x.t >= m.roll0 && x.t < m.roll1), apex = rec.reduce((a, x) => (x.p[2] > a.p[2] ? x : a));
   return { r, m, rec, rollAngle: angle('roll'), pitchAngle: angle('pitch'), rollN: count('roll'), pitchN: count('pitch'), both: rec.filter((x) => Math.abs(x.roll) > 0.05 && Math.abs(x.pitch) > 0.05).length,
-    lastRange: Math.max(...last) - Math.min(...last), e1, headingDiff: Math.abs(dh) };
+    lastRange: Math.max(...last) - Math.min(...last), e1, headingDiff: Math.abs(dh), pull, rollSeg, apex, vzAtRoll: rec.find((x) => x.t >= m.roll0).v[2], zEnd: rec.at(-1).p[2], z0: rec[0].p[2] };
 }
 
-test('B5a 兩個飛法：Roll／Pitch 各 180° ± 3°、各只有一次推出去再回中、不同時打；最後水平、航向相反、不觸地、最後 1 秒高度變化 < 0.2m', () => {
+test('B5a 全部變體：拉油門段油門 ≥ 70% 持續 0.3–0.6 秒、機身 < 5°、Roll 開始時垂直速度 ≥ +3 m/s；Roll 段油門 ≤ 10%、最高點在 Roll 開始後 ≥ 0.1 秒', () => {
+  for (const key of ['rollR_pull', 'rollL_push', 'messy']) {
+    const b = b5aMetrics(key), dur = b.pull.length / 240;
+    assert.ok(b.pull.every((x) => x.thr >= 0.7), `${key} 拉油門段油門不足`);
+    assert.ok(dur >= 0.3 && dur <= 0.6, `${key} 拉油門 ${dur.toFixed(2)} 秒`);
+    assert.ok(Math.max(...b.pull.map((x) => Math.max(Math.abs(euler(x.R).roll), Math.abs(euler(x.R).pitch)))) < 5, `${key} 拉油門段機身傾斜過大`);
+    assert.ok(b.vzAtRoll >= 3, `${key} Roll 開始時垂直速度 ${b.vzAtRoll.toFixed(2)}`);
+    assert.ok(Math.max(...b.rollSeg.map((x) => x.thr)) <= 0.10, `${key} Roll 段油門過高`);
+    assert.ok(b.apex.t - b.m.roll0 >= 0.1, `${key} 最高點只在 Roll 開始後 ${(b.apex.t - b.m.roll0).toFixed(2)} 秒`);
+  }
+});
+
+test('B5a 兩個飛法：Roll／Pitch 各 180° ± 3°、各只有一次推出去再回中、不同時打；最後水平、航向相反、不觸地、最後 1 秒高度變化 < 0.2m、最後高度與起始差 ≤ 1.5m', () => {
   for (const key of ['rollR_pull', 'rollL_push']) {
     const b = b5aMetrics(key);
     assert.ok(Math.abs(b.rollAngle - 180) <= 3, `${key} Roll 轉角 ${b.rollAngle.toFixed(1)}°`);
@@ -263,6 +276,7 @@ test('B5a 兩個飛法：Roll／Pitch 各 180° ± 3°、各只有一次推出�
     assert.ok(Math.abs(b.headingDiff - 180) <= 5, `${key} 航向相差 ${b.headingDiff.toFixed(1)}°`);
     assert.equal(b.r.touched, false, `${key} 觸地`);
     assert.ok(b.lastRange < 0.2, `${key} 最後 1 秒高度變化 ${b.lastRange.toFixed(3)} m`);
+    assert.ok(Math.abs(b.zEnd - b.z0) <= 1.5, `${key} 最後高度與起始差 ${(b.zEnd - b.z0).toFixed(2)} m`);
   }
 });
 
