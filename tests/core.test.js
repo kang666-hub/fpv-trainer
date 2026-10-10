@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { Sim, HOVER, euler } from '../js/core.js';
 import { thrForLevel, curveSide } from '../js/forces.js';
 import { LESSONS, runDemo, stageProfile, controlDefaults, controlValues } from '../js/demos.js';
@@ -270,6 +270,16 @@ test('預設視角：B2、B5a、B5、S2、S3 為機尾後方；B3、B4 維持追
   const { rearCamFor } = await import('../js/view.js'), sim = new Sim(), L = lesson('B2'); L.start(sim, L.variants[0]);
   const c = rearCamFor(sim, L.rear);
   assert.ok(c.pos[0] < sim.p[0] - 5 && c.pos[2] > sim.p[2] && c.look[0] > sim.p[0], '鏡頭應在機尾後方、略高、看向前方');
+});
+
+test('說明文字：data／js／index.html 不含人名字眼；B2 notes 10 條、B3 6 條、B4 5 條', () => {
+  const dir = new URL('..', import.meta.url);
+  for (const f of ['data/lessons.json', 'index.html', ...readdirSync(new URL('js/', dir)).map((n) => 'js/' + n)]) {
+    const txt = readFileSync(new URL(f, dir), 'utf8');
+    assert.ok(!/Kuan|團長/.test(txt), `${f} 還有人名字眼`);
+  }
+  const n = (id) => jsonLevels.find((l) => l.id === id).notes.length;
+  assert.equal(n('B2'), 10); assert.equal(n('B3'), 6); assert.equal(n('B4'), 5);
 });
 
 test('A2 8 字：先轉一整圈（航向累計 ≥ 340°）再反向轉回（結束航向回到起點）且高度穩定', () => {
