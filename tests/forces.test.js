@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Sim, HOVER, D2R, M, yawOnly } from '../js/core.js';
-import { forces, thrForLevel, throttleSplit } from '../js/forces.js';
+import { forces, thrForLevel, throttleSplit, curveSide } from '../js/forces.js';
 import { LESSONS } from '../js/demos.js';
 
 const tilted = (deg, thr) => { const sim = new Sim(); sim.R = M.mul(yawOnly(0), M.exp([0, deg * D2R, 0])); sim.st.thr = thr; return sim; };
@@ -48,4 +48,19 @@ test('throttleSplit：5% 油門變化在 20°／60°／0° 下的往上與往側
 
 test('油門分力讀數旗標：只有 B3、B4 的示範設 sens: true', () => {
   assert.deepEqual(LESSONS.filter((l) => l.sens).map((l) => l.id), ['B3', 'B4']);
+});
+
+test('curveSide：(0°, 懸停) level；(30°, 100%) up；(60°, 懸停) down；(70°, 100%) down；±2% 內算 level', () => {
+  assert.equal(curveSide(0, HOVER), 'level');
+  assert.equal(curveSide(30, 1), 'up');
+  assert.equal(curveSide(60, HOVER), 'down');
+  assert.equal(curveSide(70, 1), 'down');
+  assert.equal(curveSide(66.4, 1), 'level');
+  assert.equal(curveSide(45, thrForLevel(45).thr + 0.015), 'level');
+  assert.equal(curveSide(45, thrForLevel(45).thr + 0.03), 'up');
+});
+
+test('curve 旗標：只有 B2 的示範設 curve: true', () => {
+  assert.deepEqual(LESSONS.filter((l) => l.curve === true).map((l) => l.id), ['B2']);
+  assert.ok(LESSONS.filter((l) => l.id !== 'B2').every((l) => !l.curve));
 });

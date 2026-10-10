@@ -1,6 +1,6 @@
 // 3D 繪圖、搖桿、高度圖。只畫圖，不持有模擬狀態（狀態由 app.js 傳入）。
 import { HOVER, D2R, V, M } from './core.js';
-import { forces } from './forces.js';
+import { forces, thrForLevel } from './forces.js';
 
 let chase = null; // 追尾／跟隨鏡頭的平滑狀態
 export function resetChase() { chase = null; }
@@ -288,4 +288,32 @@ export function drawCurve(cv, def, x, tx) {
   for (let v = ax.min; v <= ax.max + 1e-9; v += 0.5) { const y = def.f(v); if (!isFinite(y) || y > ay.max) break; if (started) c.lineTo(X(v), Y(y)); else { c.moveTo(X(v), Y(y)); started = true; } }
   c.strokeStyle = '#3fd0e0'; c.lineWidth = 2; c.stroke();
   const yv = Math.min(ay.max, def.f(x)); c.beginPath(); c.arc(X(x), Y(yv), 5, 0, 7); c.fillStyle = def.f(x) > def.limit ? '#ffd23f' : '#ff6a1f'; c.fill(); c.strokeStyle = '#14100c'; c.lineWidth = 2; c.stroke();
+}
+
+// 油門–傾角曲線圖（B2）：橫軸傾角 0–90°、縱軸油門 0–100%。曲線＝剛好不掉高的油門（懸停 ÷ cosθ，夾 100%）；曲線上方＝往上、下方＝往下；
+// 66.4° 虛線＝油門 100% 也只能撐到這裡。pts：最近約 2 秒的 { tilt, thr } 軌跡，最後一點是當下。文字由呼叫端從 lessons.json 傳進來。
+export function drawThrCurve(cv, pts, tx) {
+  const dpr = Math.min(2, devicePixelRatio || 1), W = cv.clientWidth, H = cv.clientHeight || 140;
+  if (!W) return;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W, H);
+  const pl = 34, pr = 8, pt = 8, pb = 24, X = (a) => pl + a / 90 * (W - pl - pr), Y = (v) => pt + (1 - v) * (H - pt - pb);
+  const cross = Math.acos(HOVER) / D2R, curve = (a) => Math.min(1, thrForLevel(a).thr);
+  // 曲線上方（往上）、下方（往下）的淡色區
+  c.beginPath(); c.moveTo(X(0), Y(1)); for (let a = 0; a <= 90; a += 1) c.lineTo(X(a), Y(curve(a))); c.lineTo(X(90), Y(1)); c.closePath(); c.fillStyle = 'rgba(255,210,63,0.08)'; c.fill();
+  c.beginPath(); c.moveTo(X(0), Y(0)); for (let a = 0; a <= 90; a += 1) c.lineTo(X(a), Y(curve(a))); c.lineTo(X(90), Y(0)); c.closePath(); c.fillStyle = 'rgba(63,208,224,0.08)'; c.fill();
+  c.font = '10px "JetBrains Mono",monospace'; c.fillStyle = '#8d949e'; c.strokeStyle = '#2a2f37'; c.lineWidth = 1; c.textAlign = 'right';
+  for (const v of [0, 0.5, 1]) { c.beginPath(); c.moveTo(pl, Y(v)); c.lineTo(W - pr, Y(v)); c.stroke(); c.fillText(Math.round(v * 100) + '%', pl - 4, Y(v) + 3); }
+  c.textAlign = 'center'; for (const a of [0, 30, 60, 90]) c.fillText(a + '°', X(a), H - pb + 12);
+  c.fillText(tx.x || '', pl + (W - pl - pr) / 2, H - 2);
+  c.setLineDash([4, 4]); c.strokeStyle = 'rgba(255,255,255,0.5)'; c.beginPath(); c.moveTo(X(cross), Y(0)); c.lineTo(X(cross), Y(1)); c.stroke(); c.setLineDash([]);
+  c.fillStyle = '#fff'; c.textAlign = 'right'; c.fillText(tx.limit || '', X(cross) - 3, Y(0) - 4 - 12);
+  c.fillStyle = 'rgba(255,210,63,0.9)'; c.textAlign = 'left'; c.fillText(tx.up || '', pl + 4, Y(1) + 11);
+  c.fillStyle = 'rgba(63,208,224,0.9)'; c.fillText(tx.down || '', pl + 4, Y(0) - 4);
+  c.beginPath(); for (let a = 0; a <= 90; a += 1) (a ? c.lineTo(X(a), Y(curve(a))) : c.moveTo(X(a), Y(curve(a)))); c.strokeStyle = '#3fd0e0'; c.lineWidth = 2; c.stroke();
+  c.fillStyle = '#3fd0e0'; c.textAlign = 'left'; c.fillText(tx.level || '', X(4), Y(curve(4)) - 6);
+  if (pts.length) {
+    c.beginPath(); pts.forEach((q, i) => (i ? c.lineTo(X(q.tilt), Y(q.thr)) : c.moveTo(X(q.tilt), Y(q.thr)))); c.strokeStyle = 'rgba(255,106,31,0.6)'; c.lineWidth = 2; c.stroke();
+    const e = pts[pts.length - 1]; c.beginPath(); c.arc(X(Math.min(90, e.tilt)), Y(e.thr), 4.5, 0, 7); c.fillStyle = '#ff6a1f'; c.fill(); c.strokeStyle = '#14100c'; c.lineWidth = 2; c.stroke();
+  }
 }

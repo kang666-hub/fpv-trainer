@@ -29,3 +29,12 @@ export function throttleSplit(tiltDeg, dThr) {
   const dT = dThr * TMAX / G;
   return { up: dT * Math.cos(tiltDeg * D2R), side: dT * Math.sin(tiltDeg * D2R) };
 }
+
+// 油門–傾角圖的位置：油門比「剛好不掉高」（thrForLevel）多 > 2% 往上、少 > 2% 往下，±2% 內算 level。
+// 傾角 ≥ 66.4°（曲線已超過 100%）且油門 100% 時，推力也撐不住重力：回 'down'。
+export function curveSide(tiltDeg, thr) {
+  const need = thrForLevel(tiltDeg);
+  if (!need.ok) return 'down';
+  const d = thr - need.thr;
+  return d > 0.02 ? 'up' : d < -0.02 ? 'down' : 'level';
+}

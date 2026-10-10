@@ -26,7 +26,7 @@ python3 -m http.server 8000
 - `controls: [{ key, min, max, step, default }]`：app 在示範下方顯示滑桿，目前的值以 `ctl` 物件（`{ [key]: 數字 }`）傳給 `start(sim, v, ctl)`、`ctrl(v, sim, t, mem, ctl)`、`readout`、`endWhen`；拖動滑桿就從頭重跑。滑桿標題與單位寫在 `lessons.json` 該關的 `controls: [{ key, label, unit }]`。
 - `endWhen(sim, t, v, ctl)`（選用）：回傳 `true` 就提早結束這一輪（例如掉到 5m 以下）。
 - `readout(v, sim, ctl)`（選用）：回傳 `{ vals, digits, over }`，app 把 `lessons.json` 該關 `readout.line` 的 `{名稱}` 換成數字；`over` 為真時另外顯示 `readout.warn`。
-- `curve`（選用）：`{ x: { key, min, max }, y: { min, max }, f, limit, cross }` 畫一張小圖（曲線＋上限線＋目前滑桿位置的點），軸標籤在 `lessons.json` 該關的 `curve`。
+- `plot`（選用）：`{ x: { key, min, max }, y: { min, max }, f, limit, cross }` 畫一張小圖（曲線＋上限線＋目前滑桿位置的點），軸標籤在 `lessons.json` 該關的 `curve`。
 - 純函式 `controlDefaults(L)`、`controlValues(L, vals)`、`runDemo(L, v, dt, ctl)` 可在 Node 測試。
 
 ## 自由練習的畫面

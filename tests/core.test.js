@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Sim, HOVER, euler } from '../js/core.js';
-import { thrForLevel } from '../js/forces.js';
+import { thrForLevel, curveSide } from '../js/forces.js';
 import { LESSONS, runDemo, stageProfile, controlDefaults, controlValues } from '../js/demos.js';
 
 const lesson = (id) => LESSONS.find((l) => l.id === id);
@@ -101,6 +101,20 @@ test('B2 wide：油門比傾角最大早 0.15–0.3 秒到頂並維持到收油�
   assert.ok(w.thrAfter <= HOVER + 0.05, `回平後 0.1 秒油門 ${w.thrAfter.toFixed(2)}`);
   assert.ok(w.bounce > d.bounce && w.bounce <= 2, `wide 彈升 ${w.bounce.toFixed(2)}、dive ${d.bounce.toFixed(2)}`);
   assert.ok(w.vpeak >= 12, `速度峰值 ${w.vpeak.toFixed(1)}`);
+});
+
+function sideShare(r, t0, t1, want) {
+  const seg = r.rec.filter((x) => x.t >= t0 && x.t <= t1), n = seg.filter((x) => curveSide(tiltOf2(x), x.thr) === want).length;
+  return { n, total: seg.length, share: n / seg.length };
+}
+
+test('B2 油門–傾角圖：dive 前傾段 ≥ 80% 在曲線上（level）；slam 開始後 0.3 秒內有 up；balloon 回平後 1 秒 ≥ 80% 是 up', () => {
+  const d = b2Metrics('dive'), lv = sideShare(d.r, d.tStart, d.tPeak, 'level');
+  assert.ok(lv.share >= 0.8, `dive 前傾段 level 只有 ${(lv.share * 100).toFixed(0)}%`);
+  const s = run('B2', 'slam'), up = s.rec.filter((x) => x.t >= 1.0 && x.t <= 1.3).some((x) => curveSide(tiltOf2(x), x.thr) === 'up');
+  assert.ok(up, 'slam 開始後 0.3 秒內沒有 up');
+  const b = b2Metrics('balloon'), bu = sideShare(b.r, b.tFlat, b.tFlat + 1, 'up');
+  assert.ok(bu.share >= 0.8, `balloon 回平後 up 只有 ${(bu.share * 100).toFixed(0)}%`);
 });
 
 test('B2 pitchonly：油門全程 = 懸停 ±0.5%；最大傾角時間與 dive 相差 < 0.05；進場 10m、最低高度 ≥ 2m、掉高比 dive 多 > 1m', () => {
@@ -410,7 +424,7 @@ test('S6 readout／curve：66.4° 為臨界，超過 over = true；曲線在 0°
   const L = lesson('S6'), v = variant('S6', 'hold'), sim = new Sim();
   assert.equal(L.readout(v, sim, { tilt: 60 }).over, false);
   assert.equal(L.readout(v, sim, { tilt: 70 }).over, true);
-  assert.ok(Math.abs(L.curve.f(0) - 40) < 0.01 && Math.abs(L.curve.cross - 66.4) < 0.1);
+  assert.ok(Math.abs(L.plot.f(0) - 40) < 0.01 && Math.abs(L.plot.cross - 66.4) < 0.1);
   const lv = jsonLevels.find((l) => l.id === 'S6');
   assert.ok(lv.readout.line.includes('{tilt}') && lv.readout.warn.includes('{need}') && lv.curve.x && lv.controls[0].key === 'tilt');
 });

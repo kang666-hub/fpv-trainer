@@ -2,7 +2,7 @@
 import { Sim, HOVER, yawOnly, euler } from './core.js';
 import { throttleSplit } from './forces.js';
 import { LESSONS, FREE, lessonStart, lessonCtrl, stageProfile, controlDefaults } from './demos.js';
-import { scene, viewCam, camFromBody, sizeCanvas, drawStick, drawAlt, drawOSD, drawCurve, resetChase } from './view.js';
+import { scene, viewCam, camFromBody, sizeCanvas, drawStick, drawAlt, drawOSD, drawCurve, drawThrCurve, resetChase } from './view.js';
 import * as store from './progress.js';
 import { CHANNELS, normChannels, applyChannels, freeStart } from './free.js';
 import { createGamepadInput, shapeSticks, detectAxis, finalizeCalibration, DEFAULT_GAMEPAD } from './gamepad.js';
@@ -23,6 +23,7 @@ let legendText = null;                // lessons.json 的 legend 文字
 let freeChannels = normChannels(null); // 自由練習的通道開關（true = 開），存在設定裡
 let ctl = {};                         // 示範滑桿（controls）目前的值
 let L = CLASS[0], vIdx = 0, t = 0, mem = {}, paused = false, speed = 1, crashT = 0, camMode = L.cam;
+let thrTrail = [];                    // 油門–傾角圖的軌跡（最近約 2 秒）
 let hist = [], trail = [], ghost = [], stats = { minz: 1e9, maxz: -1e9, z0: 0, crashed: false }, lastResult = '';
 let ctrlOut = { thr: HOVER, roll: 0, pitch: 0, yaw: 0, phase: '' };
 const stickTrail = { L: [], R: [] };
@@ -34,7 +35,7 @@ for (const l of LESSONS) { l.title = l.title || l.id; l.notes = l.notes || []; l
 function applyContent(data) {
   for (const tier of data.tiers) for (const lv of tier.levels) {
     const l = LESSONS.find((x) => x.id === lv.demo); if (!l) continue;
-    Object.assign(l, { title: lv.title, notes: lv.notes, watch: lv.watch, tier: tier.id, levelId: lv.id, readoutText: lv.readout || null, curveText: lv.curve || null });
+    Object.assign(l, { title: lv.title, notes: lv.notes, watch: lv.watch, tier: tier.id, levelId: lv.id, readoutText: lv.readout || null, curveText: lv.curve || null, thrCurveText: lv.thrCurve || null });
     for (const c of l.controls || []) Object.assign(c, (lv.controls || []).find((x) => x.key === c.key) || {});
     for (const v of l.variants) { const jv = lv.variants.find((x) => x.key === v.key); if (jv) Object.assign(v, { kind: jv.kind, label: jv.label, stages: jv.stages, relates: jv.relates ?? null }); }
   }
@@ -139,14 +140,14 @@ function updateInteract() {
   const r = L.readout(L.variants[vIdx], sim, ctl), tx = L.readoutText || {};
   setTxt('readout', fillTpl(tx.line, r));
   const w = $('readWarn'); w.hidden = !r.over; if (r.over) setTxt('readWarn', fillTpl(tx.warn, r));
-  if (L.curve) drawCurve($('curve'), L.curve, ctl[L.curve.x.key], L.curveText || {});
+  if (L.plot) drawCurve($('curve'), L.plot, ctl[L.plot.x.key], L.curveText || {});
 }
 function selectLesson(l) {
   L = l; vIdx = 0; lastResult = ''; ctl = controlDefaults(l);
   camMode = L.cam; buildTabs(); buildVariants(); buildNotes(); buildCam(); buildControls(); restart();
 }
 function restart() {
-  t = 0; mem = {}; crashT = 0; hist = []; trail = []; resetChase();
+  t = 0; mem = {}; crashT = 0; hist = []; trail = []; thrTrail = []; resetChase();
   if (L.free) { // 自由練習：從地面起飛，油門從 0 開始
     sim.groundHold = true;
     const fs = freeStart(freeChannels); // 油門關掉：空中 5m、懸停油門；油門開著：地面起飛
@@ -411,7 +412,7 @@ function frame(now) {
         stats.minz = Math.min(stats.minz, sim.p[2]); stats.maxz = Math.max(stats.maxz, sim.p[2]);
         if (sim.crashed) { stats.crashed = true; $('banner').hidden = false; }
         if ((trailT += DT) > 0.05) { trailT = 0; trail.push(sim.p.slice()); if (trail.length > (L.fullTrail ? 4000 : 70)) trail.shift(); } // 腳本示範（fullTrail）保留整輪軌跡，重播時 restart 會清掉
-        if ((histT += DT) > 0.04) { histT = 0; hist.push({ t, z: sim.p[2] }); if (hist.length > 400) hist.shift(); }
+        if ((histT += DT) > 0.04) { histT = 0; hist.push({ t, z: sim.p[2] }); if (hist.length > 400) hist.shift(); if (L.curve) { thrTrail.push({ t, tilt: Math.acos(Math.max(-1, Math.min(1, sim.R[8]))) * 180 / Math.PI, thr: sim.st.thr }); while (thrTrail.length && t - thrTrail[0].t > 2) thrTrail.shift(); } }
         if (!L.free && (t >= L.dur || (L.endWhen && L.endWhen(sim, t, L.variants[vIdx], ctl)))) { finishRun(); restart(); }
         const sl = stickTrail.L, sr = stickTrail.R;
         sl.push([sim.st.yaw, sim.st.thr * 2 - 1]); sr.push([sim.st.roll, sim.st.pitch]);
@@ -433,6 +434,8 @@ function frame(now) {
     setTxt('fpvtag', fpvMain ? '第三人稱' : 'FPV 25°');
     if (!L.free) { updateTimeline(); updateInteract(); }
     updateSens();
+    for (const id of ['thrCurveA', 'thrCurveM']) { const cv = $(id); if (L.curve && cv.offsetParent) drawThrCurve(cv, thrTrail, L.thrCurveText || {}); }
+    document.querySelectorAll('.thrbox').forEach((b) => { b.dataset.on = L.curve ? '1' : '0'; });
     const stg = !L.free && L.variants[vIdx].stages && stageIdx >= 0 ? L.variants[vIdx].stages[stageIdx] : null;
     setTxt('phase', L.free ? (ctrlOut.phase || '') : stg ? `${CIRC[stageIdx] || ''} ${stg.label}` : '');
     if (L.free) setTxt('modeTag', gpCalibrated() && !wiz ? '遙控器' : '你在飛');

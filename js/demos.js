@@ -125,7 +125,7 @@ function diveCtrl(v, sim, t, mem) {
   return { thr, pitch, ...lv };
 }
 const B2 = {
-  id: 'B2', dur: 6.5, cam: 'side', side: { follow: [3, -14, 3] }, fullTrail: true,
+  id: 'B2', dur: 6.5, curve: true, cam: 'side', side: { follow: [3, -14, 3] }, fullTrail: true,
   variants: [{ key: 'dive', dive: true, mode: 'dive' }, { key: 'wide', dive: true, mode: 'wide', dip: 0.08, dipT: 0.6 }, { key: 'pitchonly', dive: true, mode: 'pitchonly', z0: 10 }, { key: 'jet', tilt: Math.acos(HOVER) / D2R, bal: true }, { key: 'short', tilt: 30, bal: false }, { key: 'balloon', dive: true, mode: 'balloon' }, { key: 'slam', dive: true, mode: 'slam' }, { key: 'coupled', dive: true, mode: 'coupled' }],
   start: (sim, v) => {
     if (v && v.dive) { startFromRef(sim, (t) => B2_DIVE_REF(t, v.z0 ?? B2_D.z)); return; }
@@ -528,7 +528,7 @@ const S5 = {
 
 // S6 P ↔ T：Pitch 傾角和油門的搭配（互動單元）。
 // 示範可以宣告 controls（滑桿）：app 讀到就顯示滑桿，值傳進 start／ctrl／readout／endWhen 的最後一個參數 ctl；拖動就從頭重跑。
-// endWhen(sim, t, v, ctl)：回傳 true 就提早結束這一輪（這裡是掉到 5m 以下）。readout 回傳即時讀數，curve 描述小圖（文字在 lessons.json）。
+// endWhen(sim, t, v, ctl)：回傳 true 就提早結束這一輪（這裡是掉到 5m 以下）。readout 回傳即時讀數，plot 描述小圖（文字在 lessons.json 的 curve）。
 const S6_TILT_MAX = 80;
 const S6 = {
   id: 'S6', dur: 6, cam: 'side', side: { follow: [3, -15, 1] },
@@ -549,7 +549,7 @@ const S6 = {
     return { vals: { tilt: ctl.tilt, need: need.thr * 100, vert: f.verticalMag, horiz: f.horizontalMag }, digits: { tilt: 0, need: 0, vert: 2, horiz: 2 }, over: !need.ok };
   },
   // 小圖：橫軸傾角、縱軸維持高度需要的油門 %（= 懸停 ÷ cosθ），100% 水平線與交點
-  curve: { x: { key: 'tilt', min: 0, max: S6_TILT_MAX }, y: { min: 0, max: 160 }, f: (th) => thrForLevel(th).thr * 100, limit: 100, cross: Math.acos(HOVER) / D2R },
+  plot: { x: { key: 'tilt', min: 0, max: S6_TILT_MAX }, y: { min: 0, max: 160 }, f: (th) => thrForLevel(th).thr * 100, limit: 100, cross: Math.acos(HOVER) / D2R },
 };
 
 export const LESSONS = [S1, S2, S3, S4, S5, S6, B1, B2, B3, B4, B5a, B5, A1, A2, A3, A4];
