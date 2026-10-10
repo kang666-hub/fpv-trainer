@@ -257,7 +257,7 @@ const B5_V = 6, B5_R = 3, B5_Z = 12;
 const B5_LEVEL = (t) => ({ p: [-B5_V + B5_V * t, 0, B5_Z], v: [B5_V, 0, 0], psi: 0, psid: 0 });
 const B5 = {
   id: 'B5', dur: 7, refPlane: true, fpvVs: true, cam: 'rear', rear: { back: 11.2, backM: 12.0 }, side: { pos: [4, -21, 7.5], look: [4, 0, 7.5] }, fullTrail: true,
-  variants: [{ key: 'pull', pullUp: true }, { key: 'direct', pullUp: false }, { key: 'overthr', pullUp: false, over: true }],
+  variants: [{ key: 'pull', pullUp: true }, { key: 'direct', pullUp: false }, { key: 'push', pullUp: true, push: true, rollDir: -1 }, { key: 'overthr', pullUp: false, over: true }],
   start: (sim) => startFromRef(sim, B5_LEVEL),
   ctrl: (v, sim, t, mem) => {
     const m = (mem.marks = mem.marks || {});
@@ -266,7 +266,9 @@ const B5 = {
     if (v.pullUp && !m.p2) { // 微拉高：小爬升，帶著一點向上速度進半滾
       if (!mem.pu) mem.pu = t;
       const tau = t - mem.pu;
-      if (tau < 0.4) { const a = 6; return { ...track(sim, { p: [B5_V * t - B5_V, 0, B5_Z + 0.5 * a * tau * tau], v: [B5_V, 0, a * tau], a: [0, 0, a], psi: 0, psid: 0 }), phase: null }; }
+      // push 版本：倒置時推力朝下、整段都在往下掉，所以要先拉得比 pull 多（約 +6 m/s 往上），翻完才不會比進場低
+      const dur = v.push ? 0.55 : 0.4, a = v.push ? 12 : 6;
+      if (tau < dur) return { ...track(sim, { p: [B5_V * t - B5_V, 0, B5_Z + 0.5 * a * tau * tau], v: [B5_V, 0, a * tau], a: [0, 0, a], psi: 0, psid: 0 }), phase: null };
       m.p2 = t;
     }
     if (!m.p2) m.p2 = t;
@@ -275,12 +277,24 @@ const B5 = {
       const stick = clamp(Math.max(0.12, (180 - mem.acc) / 6), 0, 1);
       mem.acc += stick * 500 * DT;
       if (mem.acc >= 179.9) m.p3 = t;
-      return { thr: 0.12, roll: stick, pitch: 0, yaw: 0, phase: null };
+      return { thr: 0.12, roll: (v.rollDir || 1) * stick, pitch: 0, yaw: 0, phase: null };
+    }
+    if (v.push && !m.p4) { // 推桿穿過上半圈：倒置時往前推 Pitch，機頭往天空繞；倒置時油門要小（推力朝下），過了 90° 才依傾角補到維持高度
+      if (!mem.lp) mem.lp = { x0: sim.p[0], z0: sim.p[2], t0: t };
+      mem.pacc = mem.pacc || 0;
+      const st = Math.min(0.45, Math.max(0, (180 - mem.pacc) / (500 * DT)));
+      mem.pacc += st * 500 * DT;
+      if (180 - mem.pacc < 1e-6) m.p4 = t;
+      else {
+        const up = sim.R[8], out = { thr: up > 0.25 ? clamp(HOVER / up, 0, 1) : 0.05, roll: 0, pitch: st, yaw: 0, phase: null };
+        mem.last = { thr: out.thr, roll: 0, pitch: out.pitch };
+        return out;
+      }
     }
     const Rr = B5_R, w = B5_V / Rr, Tl = Math.PI / w;
     if (!mem.lp) mem.lp = { x0: sim.p[0], z0: sim.p[2], t0: t };
     const { x0, z0, t0 } = mem.lp, tau = t - t0;
-    if (tau < Tl) { // 下半圈以 Pitch 為主：前饋角速度 ω = V/R 換成 Pitch 桿量，再加推力方向的誤差回饋；Roll、Yaw 只做小修正
+    if (!v.push && tau < Tl) { // 下半圈以 Pitch 為主：前饋角速度 ω = V/R 換成 Pitch 桿量，再加推力方向的誤差回饋；Roll、Yaw 只做小修正
       const ph = w * tau, s = Math.sin(ph), c = Math.cos(ph);
       const ad = [-B5_V * w * s + DRAG * B5_V * c + 4 * (x0 + Rr * s - sim.p[0]) + 3.2 * (B5_V * c - sim.v[0]), 0,
         -B5_V * w * c - DRAG * B5_V * s + 4 * (z0 - Rr + Rr * c - sim.p[2]) + 3.2 * (-B5_V * s - sim.v[2]) + G];
@@ -304,7 +318,7 @@ const B5 = {
     // 桿量從半圓最後一格的值開始平滑變化（每 0.1 秒 ≤ 20%），不會在切換那一格跳。對照 over 只保留「油門推太大」這個錯誤。
     const e = euler(sim.R), step = 2.0 * DT, slew = (cur, goal) => cur + clamp(goal - cur, -step, step);
     const ex = (mem.ex = mem.ex || { ...(mem.last || { thr: HOVER, roll: 0, pitch: 0 }) });
-    const goalThr = v.over ? 1 : clamp(HOVER / Math.max(0.3, sim.R[8]) - 0.12 * sim.v[2], 0, 1);
+    const goalThr = v.over ? 1 : clamp(HOVER / Math.max(0.3, sim.R[8]) - 0.12 * sim.v[2] + (v.push ? 0.06 * (B5_Z + 1.5 - sim.p[2]) : 0), 0, 1); // push：回到進場高度以上
     ex.thr = slew(ex.thr, goalThr);
     ex.roll = slew(ex.roll, clamp(-e.roll * 8 / 500, -1, 1));
     ex.pitch = slew(ex.pitch, clamp(((mem.pitch0 ?? 0) - e.pitch) * 8 / 500, -1, 1));
@@ -312,7 +326,7 @@ const B5 = {
   },
   // 預期路徑（飛法版）：半滾點之後的半圓＋改出直線。對照版不畫
   ghost: (v) => {
-    if (v.over) return [];
+    if (v.over || v.push) return [];
     const { x0, z0 } = probe(B5, v).mem.lp, w = B5_V / B5_R, o = [];
     for (let ph = 0; ph <= Math.PI + 1e-6; ph += Math.PI / 24) o.push([x0 + B5_R * Math.sin(ph), 0, z0 - B5_R + B5_R * Math.cos(ph)]);
     o.push([x0 - 8, 0, z0 - 2 * B5_R]);

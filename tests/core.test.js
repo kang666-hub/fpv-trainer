@@ -215,6 +215,23 @@ test('B5：飛法改出後 1 秒高度 ≤ 進場且 |垂直速度| < 0.5；對�
   }
 });
 
+test('B5 push（左 Roll＋推 Pitch）：Roll 180° ± 5°；推桿時機頭仰角 > 30°（掃過天空）；最後機身回到進場姿態、航向相差 180° ± 5°；不觸地；改出後 1 秒 |垂直速度| < 0.5、高度 ≥ 進場', () => {
+  const L = lesson('B5'), v = variant('B5', 'push'), r = runDemo(L, v), m = r.mem.marks, rec = r.rec;
+  let acc = 0; for (const x of rec.filter((x) => x.t >= m.p2 && x.t < m.p3)) acc += Math.abs(x.roll) * 500 / 240;
+  assert.ok(Math.abs(acc - 180) <= 5, `Roll 段 ${acc.toFixed(1)}°`);
+  const seg = rec.filter((x) => x.t >= m.p3 && x.t <= m.p4), elev = Math.max(...seg.map((x) => -Math.asin(Math.max(-1, Math.min(1, x.R[6]))) * 180 / Math.PI * -1));
+  assert.ok(elev > 30, `機頭仰角最大 ${elev.toFixed(0)}°`);
+  const e0 = euler(rec[0].R), e1 = euler(rec.at(-1).R); let dh = e1.yaw - e0.yaw; dh = ((dh + 540) % 360) - 180;
+  assert.ok(Math.abs(Math.abs(dh) - 180) <= 5, `航向差 ${dh.toFixed(1)}°`);
+  assert.ok(Math.abs(e1.roll) < 5 && Math.abs(e1.pitch - e0.pitch) < 5, `最後姿態 roll ${e1.roll.toFixed(1)} pitch ${e1.pitch.toFixed(1)}（進場 ${e0.pitch.toFixed(1)}）`);
+  assert.equal(r.touched, false);
+  const at = rec.reduce((a, x) => (Math.abs(x.t - (m.p4 + 1)) < Math.abs(a.t - (m.p4 + 1)) ? x : a));
+  assert.ok(Math.abs(at.v[2]) < 0.5, `改出後垂直速度 ${at.v[2].toFixed(2)}`);
+  assert.ok(at.p[2] >= 12, `改出高度 ${at.p[2].toFixed(2)} m（進場 12）`);
+  assert.deepEqual(jsonLevels.find((l) => l.id === 'B5').variants.map((x) => x.key), ['pull', 'direct', 'push', 'overthr']);
+  assert.deepEqual(L.variants.map((x) => x.key), ['pull', 'direct', 'push', 'overthr']);
+});
+
 test('B5 改出：不抖——|Roll 桿量| < 10%、|Yaw 桿量| < 5%、|機身 Roll 角| < 5°、航向變化 < 3°；每 0.1 秒桿量變化 ≤ 20%', () => {
   for (const v of lesson('B5').variants) {
     const r = runDemo(lesson('B5'), v), seg = r.rec.filter((x) => x.t >= r.mem.marks.p4), e0 = euler(seg[0].R).yaw;
@@ -231,7 +248,7 @@ test('B5 改出：不抖——|Roll 桿量| < 10%、|Yaw 桿量| < 5%、|機身 
 });
 
 test('B5 拉桿穿過下半圈：Pitch 為主（平均 |Pitch| > 10%，|Roll|、|Yaw| < 5%），半滾收在 180° ± 2°', () => {
-  for (const v of lesson('B5').variants) {
+  for (const v of lesson('B5').variants.filter((x) => x.key !== 'push')) { // push 沒有「下半圈」（它是推桿穿過上半圈）
     const r = runDemo(lesson('B5'), v), prof = stageProfile(lesson('B5'), v, r);
     const i = jsonVariant('B5', v.key).stages.findIndex((s) => s.label === '拉桿穿過下半圈');
     assert.ok(i >= 0, `B5/${v.key} 找不到下半圈階段`);
