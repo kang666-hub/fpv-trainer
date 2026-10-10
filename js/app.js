@@ -2,7 +2,8 @@
 import { Sim, HOVER, yawOnly, euler } from './core.js';
 import { throttleSplit } from './forces.js';
 import { LESSONS, FREE, lessonStart, lessonCtrl, stageProfile, controlDefaults } from './demos.js';
-import { scene, viewCam, camFromBody, sizeCanvas, drawStick, drawAlt, drawOSD, drawCurve, drawThrCurve, resetChase, rearCamFor } from './view.js';
+import { scene, viewCam, camFromBody, sizeCanvas, drawStick, drawAlt, drawOSD, drawCurve, drawThrCurve, resetChase } from './view.js';
+import { startHeading } from './cams.js';
 import * as store from './progress.js';
 import { CHANNELS, normChannels, applyChannels, freeStart } from './free.js';
 import { createGamepadInput, shapeSticks, detectAxis, finalizeCalibration, DEFAULT_GAMEPAD } from './gamepad.js';
@@ -23,7 +24,7 @@ let legendText = null;                // lessons.json 的 legend 文字
 let freeChannels = normChannels(null); // 自由練習的通道開關（true = 開），存在設定裡
 let ctl = {};                         // 示範滑桿（controls）目前的值
 let L = CLASS[0], vIdx = 0, t = 0, mem = {}, paused = false, speed = 1, crashT = 0, camMode = L.cam;
-let rearCam = null;                   // 機尾後方鏡頭（restart 時依示範開始的姿態算一次）
+let rearCam = null;                   // 機尾後方鏡頭的固定方向（restart 時記下示範開始的機頭方向）與距離設定
 let thrTrail = [];                    // 油門–傾角圖的軌跡（最近約 2 秒）
 let hist = [], trail = [], ghost = [], stats = { minz: 1e9, maxz: -1e9, z0: 0, crashed: false }, lastResult = '';
 let ctrlOut = { thr: HOVER, roll: 0, pitch: 0, yaw: 0, phase: '' };
@@ -154,7 +155,7 @@ function restart() {
     const fs = freeStart(freeChannels); // 油門關掉：空中 5m、懸停油門；油門開著：地面起飛
     sim.reset(fs.p, [0, 0, 0], yawOnly(0)); sim.st = { thr: fs.thr, yaw: 0, pitch: 0, roll: 0 }; freeIn.thr = fs.thr;
   } else { sim.groundHold = false; sim.rateScale = 1; lessonStart(L, sim, L.variants[vIdx], ctl); }
-  rearCam = L.free ? null : rearCamFor(sim, L.rear);
+  rearCam = L.free ? null : { heading: startHeading(sim), cfg: L.rear };
   stats = { minz: sim.p[2], maxz: sim.p[2], z0: sim.p[2], crashed: false };
   ghost = L.free ? [] : L.ghost(L.variants[vIdx]);
   $('banner').hidden = true;
@@ -424,7 +425,7 @@ function frame(now) {
     const S = { sim, poles: L.poles, ghost, trail, layers: forceLayers, marks: L.overlay ? L.overlay(L.variants[vIdx], sim, t, mem) : null };
     const fpvMain = L.free && freeView === 'fpv'; // 自由練習預設 FPV 為大畫面，小畫面放第三人稱
     const mode = L.free ? 'chase' : camMode;
-    const drawChase = (cv, ratio) => { const c = sizeCanvas(cv, ratio); scene(c.ctx, viewCam(c.W, c.H, sim, mode, L.side, rearCam), S, true); };
+    const drawChase = (cv, ratio) => { const c = sizeCanvas(cv, ratio); scene(c.ctx, viewCam(c.W, c.H, sim, mode, L.side, rearCam, real), S, true); };
     const drawFpv = (cv, ratio, osd) => {
       const c = sizeCanvas(cv, ratio); scene(c.ctx, camFromBody(sim.p, sim.R, c.W, c.H, 25, 110), S, false);
       if (osd) drawOSD(c.ctx, c.W, c.H, { alt: sim.p[2], spd: Math.hypot(...sim.v), thr: sim.st.thr });

@@ -125,7 +125,7 @@ function diveCtrl(v, sim, t, mem) {
   return { thr, pitch, ...lv };
 }
 const B2 = {
-  id: 'B2', dur: 6.5, curve: true, cam: 'rear', rear: { back: 10, up: 3 }, side: { follow: [3, -14, 3] }, fullTrail: true,
+  id: 'B2', dur: 6.5, curve: true, cam: 'rear', rear: { back: 6, up: 2 }, side: { follow: [3, -14, 3] }, fullTrail: true,
   variants: [{ key: 'dive', dive: true, mode: 'dive' }, { key: 'wide', dive: true, mode: 'wide', dip: 0.08, dipT: 0.6 }, { key: 'pitchonly', dive: true, mode: 'pitchonly', z0: 10 }, { key: 'jet', tilt: Math.acos(HOVER) / D2R, bal: true }, { key: 'short', tilt: 30, bal: false }, { key: 'balloon', dive: true, mode: 'balloon' }, { key: 'slam', dive: true, mode: 'slam' }, { key: 'coupled', dive: true, mode: 'coupled' }],
   start: (sim, v) => {
     if (v && v.dive) { startFromRef(sim, (t) => B2_DIVE_REF(t, v.z0 ?? B2_D.z)); return; }
@@ -256,7 +256,7 @@ const B4 = {
 const B5_V = 6, B5_R = 3, B5_Z = 12;
 const B5_LEVEL = (t) => ({ p: [-B5_V + B5_V * t, 0, B5_Z], v: [B5_V, 0, 0], psi: 0, psid: 0 });
 const B5 = {
-  id: 'B5', dur: 7, cam: 'rear', rear: { back: 30, up: 3 }, side: { pos: [4, -21, 7.5], look: [4, 0, 7.5] }, fullTrail: true,
+  id: 'B5', dur: 7, cam: 'rear', rear: { back: 6, up: 2 }, side: { pos: [4, -21, 7.5], look: [4, 0, 7.5] }, fullTrail: true,
   variants: [{ key: 'pull', pullUp: true }, { key: 'direct', pullUp: false }, { key: 'overthr', pullUp: false, over: true }],
   start: (sim) => startFromRef(sim, B5_LEVEL),
   ctrl: (v, sim, t, mem) => {
@@ -339,7 +339,7 @@ function b5aPulse(mem, key, target, dir) {
   return { stick: dir * st, done: target - a[key] < 1e-6 };
 }
 const B5a = {
-  id: 'B5a', dur: 7, cam: 'rear', rear: { back: 14, up: 2 }, side: { follow: [3, -12, 2] }, fullTrail: true,
+  id: 'B5a', dur: 7, cam: 'rear', rear: { back: 6, up: 2 }, side: { follow: [3, -12, 2] }, fullTrail: true,
   variants: [{ key: 'rollR_pull', rollDir: 1, pitchDir: -1 }, { key: 'rollL_push', rollDir: -1, pitchDir: 1 }, { key: 'messy', rollDir: 1, pitchDir: -1, messy: true }],
   start: (sim) => { sim.reset([0, 0, B5A.z], [0, 0, 0], yawOnly(0)); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; },
   ctrl: (v, sim, t, mem) => {
@@ -474,7 +474,7 @@ const S1 = {
 
 // S2／S3 Pitch、Roll：桿量是「轉動速度」，放開就停在當下角度
 const sTilt = (id, axis, follow) => ({
-  id, dur: 4.5, cam: 'rear', rear: { back: 12, up: 3 }, side: { follow },
+  id, dur: 4.5, cam: 'rear', rear: { back: 6, up: 2 }, side: { follow },
   variants: [{ key: 'a15', ang: 15, z0: 20 }, { key: 'a45', ang: 45, z0: 20 }, { key: 'hold', hold: true, z0: 45 }],
   start: (sim, v) => startAir(sim, (v && v.z0) || 20),
   ctrl: (v, sim, t, mem) => {

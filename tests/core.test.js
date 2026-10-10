@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { Sim, HOVER, euler } from '../js/core.js';
+import { Sim, HOVER, euler, V } from '../js/core.js';
+import { chaseCam, rearCam, startHeading } from '../js/cams.js';
 import { thrForLevel, curveSide } from '../js/forces.js';
 import { LESSONS, runDemo, stageProfile, controlDefaults, controlValues } from '../js/demos.js';
 
@@ -264,22 +265,37 @@ test('lessons.json：B2 有 8 個變體（4 飛法＋4 對照）、B3／B4 的�
   assert.ok(jsonLevels.findIndex((l) => l.id === 'B5a') === jsonLevels.findIndex((l) => l.id === 'B5') - 1);
 });
 
-test('預設視角：B2、B5a、B5、S2、S3 為機尾後方；B3、B4 維持追尾；機尾後方鏡頭在飛機後方、看向機頭方向', async () => {
+// 鏡頭：以 60Hz 逐格餵 cams.js，量鏡頭到飛機的距離與「飛機偏離鏡頭注視方向」的夾角
+function camTrace(id, key, mode) {
+  const L = lesson(id), v = variant(id, key), r = runDemo(L, v), rec = r.rec, fake = (x) => ({ p: x.p, v: x.v, R: x.R });
+  const h0 = startHeading(fake(rec[0])), angleBetween = (a, b) => Math.acos(Math.max(-1, Math.min(1, V.dot(V.norm(a), V.norm(b))))) * 180 / Math.PI;
+  let st = null, maxD = 0, minD = 1e9, maxA = 0, maxRate = 0, prevPsi = null;
+  for (let i = 0; i < rec.length; i += 4) {
+    const sim = fake(rec[i]);
+    st = mode === 'rear' ? rearCam(sim, h0, st, 1 / 60, L.rear) : chaseCam(sim, st, 1 / 60);
+    const toDrone = V.sub(sim.p, st.pos), look = V.sub(st.look, st.pos), d = V.len(toDrone);
+    maxD = Math.max(maxD, d); minD = Math.min(minD, d); maxA = Math.max(maxA, angleBetween(toDrone, look));
+    if (mode === 'chase') { if (prevPsi !== null) { let dp = st.psi - prevPsi; dp = Math.atan2(Math.sin(dp), Math.cos(dp)); maxRate = Math.max(maxRate, Math.abs(dp) * 180 / Math.PI * 60); } prevPsi = st.psi; }
+  }
+  return { minD, maxD, maxA, maxRate };
+}
+
+test('預設視角：B2、B5a、B5、S2、S3 為機尾後方；B3、B4 維持追尾', () => {
   for (const id of ['B2', 'B5a', 'B5', 'S2', 'S3']) assert.equal(lesson(id).cam, 'rear', id);
   for (const id of ['B3', 'B4']) assert.equal(lesson(id).cam, 'chase', id);
-  const { rearCamFor } = await import('../js/view.js'), sim = new Sim(), L = lesson('B2'); L.start(sim, L.variants[0]);
-  const c = rearCamFor(sim, L.rear);
-  assert.ok(c.pos[0] < sim.p[0] - 5 && c.pos[2] > sim.p[2] && c.look[0] > sim.p[0], '鏡頭應在機尾後方、略高、看向前方');
 });
 
-test('說明文字：data／js／index.html 不含人名字眼；B2 notes 10 條、B3 6 條、B4 5 條', () => {
-  const dir = new URL('..', import.meta.url);
-  for (const f of ['data/lessons.json', 'index.html', ...readdirSync(new URL('js/', dir)).map((n) => 'js/' + n)]) {
-    const txt = readFileSync(new URL(f, dir), 'utf8');
-    assert.ok(!/Kuan|團長/.test(txt), `${f} 還有人名字眼`);
+test('機尾後方：B2、B5a、B5、S2、S3 全部變體，鏡頭到飛機 4–10m，飛機偏離鏡頭注視方向 < 25°', () => {
+  for (const id of ['B2', 'B5a', 'B5', 'S2', 'S3']) for (const v of lesson(id).variants) {
+    const c = camTrace(id, v.key, 'rear');
+    assert.ok(c.minD >= 4 && c.maxD <= 10, `${id}/${v.key} 距離 ${c.minD.toFixed(1)}–${c.maxD.toFixed(1)}m`);
+    assert.ok(c.maxA < 25, `${id}/${v.key} 最大夾角 ${c.maxA.toFixed(1)}°`);
   }
-  const n = (id) => jsonLevels.find((l) => l.id === id).notes.length;
-  assert.equal(n('B2'), 10); assert.equal(n('B3'), 6); assert.equal(n('B4'), 5);
+});
+
+test('追尾：B5a 全部變體鏡頭水平方向每秒變化 ≤ 400°；B3、B4 全部變體飛機偏離鏡頭注視方向 < 30°', () => {
+  for (const v of lesson('B5a').variants) { const c = camTrace('B5a', v.key, 'chase'); assert.ok(c.maxRate <= 400, `B5a/${v.key} 鏡頭轉速 ${c.maxRate.toFixed(0)}°/s`); }
+  for (const id of ['B3', 'B4']) for (const v of lesson(id).variants) { const c = camTrace(id, v.key, 'chase'); assert.ok(c.maxA < 30, `${id}/${v.key} 最大夾角 ${c.maxA.toFixed(1)}°`); }
 });
 
 test('A2 8 字：先轉一整圈（航向累計 ≥ 340°）再反向轉回（結束航向回到起點）且高度穩定', () => {

@@ -1,9 +1,11 @@
 // 3D 繪圖、搖桿、高度圖。只畫圖，不持有模擬狀態（狀態由 app.js 傳入）。
 import { HOVER, D2R, V, M } from './core.js';
 import { forces, thrForLevel } from './forces.js';
+import { chaseCam, rearCam, startHeading } from './cams.js';
 
 let chase = null; // 追尾／跟隨鏡頭的平滑狀態
-export function resetChase() { chase = null; }
+let chaseSt = null, rearSt = null; // 追尾／機尾後方鏡頭的平滑狀態（cams.js 的 state）
+export function resetChase() { chase = null; chaseSt = null; rearSt = null; }
 
 export function makeCam(c, look, W, H, fovDeg, upHint = [0, 0, 1]) {
   const f = V.norm(V.sub(look, c)); let r = V.cross(f, upHint);
@@ -193,17 +195,9 @@ export function scene(ctx, cam, S, withDrone) {
   poles.filter((o) => o.z < dz).sort((a, b) => b.z - a.z).forEach((o) => drawPole(ctx, cam, o.pp));
 }
 // 旁觀鏡頭設定在各示範的 side 欄位（{follow:[...]} 跟隨 或 {pos, look} 固定）；自由練習只用追尾
-export function viewCam(W, H, sim, mode, side, rear) {
-  if (mode === 'rear' && rear) return makeCam(rear.pos, rear.look, W, H, W < 600 ? 46 : 58); // 機尾後方：鏡頭固定、不跟著轉
-  if (mode === 'chase') {
-    const v = [sim.v[0], sim.v[1], 0], sp = V.len(v); const xb = M.col(sim.R, 0);
-    let h = sp > 1.5 ? V.norm(v) : V.norm([xb[0], xb[1], 0.0001]);
-    if (!chase) chase = { h, c: V.add(sim.p, V.mul(h, -6), [0, 0, 2.4]) };
-    chase.h = V.norm(V.add(V.mul(chase.h, 0.94), V.mul(h, 0.06)));
-    const target = V.add(sim.p, V.mul(chase.h, -6), [0, 0, 2.4]);
-    chase.c = V.add(V.mul(chase.c, 0.88), V.mul(target, 0.12));
-    return makeCam(chase.c, V.add(sim.p, V.mul(chase.h, 1.5)), W, H, W < 600 ? 50 : 62);
-  }
+export function viewCam(W, H, sim, mode, side, rear, dt = 1 / 60) {
+  if (mode === 'rear' && rear) { rearSt = rearCam(sim, rear.heading, rearSt, dt, rear.cfg); return makeCam(rearSt.pos, rearSt.look, W, H, W < 600 ? 50 : 62); } // 機尾後方：位置跟著飛機、方向固定
+  if (mode === 'chase') { chaseSt = chaseCam(sim, chaseSt, dt); return makeCam(chaseSt.c, chaseSt.look, W, H, W < 600 ? 50 : 62); }
   const s = side || { follow: [-3, -12, 5] };
   const fov = W < 600 ? 46 : 58;  // 手機寬度：鏡頭拉近，飛機在畫面上比較大
   if (s.follow) { const goal = V.add(sim.p, s.follow, V.mul(sim.v, s.lead ?? 0.17)); if (!chase) chase = { c: goal }; chase.c = V.add(V.mul(chase.c, 0.9), V.mul(goal, 0.1)); return makeCam(chase.c, V.add(chase.c, V.mul(s.follow, -1)), W, H, fov); } // lead：往速度方向預先移動一點，高速時飛機和力的箭頭才不會被畫面邊緣切掉
@@ -317,12 +311,4 @@ export function drawThrCurve(cv, pts, tx) {
     c.beginPath(); pts.forEach((q, i) => (i ? c.lineTo(X(q.tilt), Y(q.thr)) : c.moveTo(X(q.tilt), Y(q.thr)))); c.strokeStyle = 'rgba(255,106,31,0.6)'; c.lineWidth = 2; c.stroke();
     const e = pts[pts.length - 1]; c.beginPath(); c.arc(X(Math.min(90, e.tilt)), Y(e.thr), 4.5, 0, 7); c.fillStyle = '#ff6a1f'; c.fill(); c.strokeStyle = '#14100c'; c.lineWidth = 2; c.stroke();
   }
-}
-
-// 機尾後方鏡頭：示範開始時飛機後方 back 公尺、高 up 公尺，看向起始機頭方向（水平）；往前飛＝遠離觀看者
-export function rearCamFor(sim, cfg) {
-  const { back = 14, up = 3 } = cfg || {}, xb = M.col(sim.R, 0);
-  let h = [xb[0], xb[1], 0]; if (V.len(h) < 0.2) h = [1, 0, 0]; h = V.norm(h);
-  const p = sim.p;
-  return { pos: V.add(p, V.mul(h, -back), [0, 0, up]), look: V.add(p, V.mul(h, 20), [0, 0, up * 0.3]) };
 }
