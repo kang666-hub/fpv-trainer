@@ -90,28 +90,45 @@ const B1 = {
 //  dive（下壓噴射）：低速平飛 → Pitch 壓到看地板 → 油門推滿（邊加速邊下沉）→ 拉回正、油門還在（接住下沉）→ 回正立刻收油到懸停附近 → 滑行
 //  jet（等高噴射）：Pitch 壓到推力垂直分量剛好 = 重力（cosθ = 1/HOVER⁻¹），油門同步補到頂，再收油＋Pitch 回正
 const B2_T = { hover: 1.0, ramp: 1.3, accEnd: 2.3, recEnd: 2.7 };
-const B2_D = { t0: 1.0, tilt: 75, thr1: 0.45, squeeze: 0.25, full: 0.65, z: 3, v0: 5, x0: -25, balloonThr: HOVER + 0.25 };
-const B2_DIVE_REF = (t) => ({ p: [B2_D.x0 + B2_D.v0 * t, 0, B2_D.z], v: [B2_D.v0, 0, 0], psi: 0, psid: 0 });
+// Kuan 直播實測（見 直播重點整理_1151009.md）：前傾慢（約 0.5 秒、桿量由小漸大）、最低點不停頓、拉回快（約 0.3 秒、桿量較大），
+// 油門和前傾同時開始、沿「懸停 ÷ cos(傾角)」上升，傾角最大那一刻剛好到頂；拉回前段仍滿油，傾角回到 release 以下才收，機身回平時已在懸停附近。
+const B2_D = { t0: 1.0, z: 4, v0: 6, x0: -25, tilt: 72, rise: 0.55, pause: 0.03, back: 0.3, release: 28, dip: 0.06, dipT: 0.45, wideLead: 0.2, coupledExtra: 20, balloonThr: HOVER + 0.25 };
+const B2_DIVE_REF = (t, z = B2_D.z) => ({ p: [B2_D.x0 + B2_D.v0 * t, 0, z], v: [B2_D.v0, 0, 0], psi: 0, psid: 0 });
+// 前傾角度指令：從 θi 慢慢壓到 θmax（速度由慢漸快，對應桿量由小漸大）→ 停頓 pause → 快速拉回水平（等速）
+function b2Angle(t, th0, thMax) {
+  const D = B2_D, u = (t - D.t0) / D.rise;
+  if (t < D.t0) return { th: th0, rate: 0 };
+  if (u < 1) { const a = 0.25, b = 0.15, k = a + b / 2, g = (a * u + b * u * u / 2) / k; return { th: th0 + (thMax - th0) * g, rate: (thMax - th0) * (a + b * u) / k / D.rise }; }
+  const tp = D.t0 + D.rise + D.pause, w = (t - tp) / D.back;
+  if (t < tp) return { th: thMax, rate: 0 };
+  if (w < 1) return { th: thMax * (1 - w), rate: -thMax / D.back };
+  return { th: 0, rate: 0 };
+}
 function diveCtrl(v, sim, t, mem) {
-  const m = (mem.marks = mem.marks || {}), e = euler(sim.R), lv = { roll: clamp(-e.roll * 8 / 500, -1, 1), yaw: 0, phase: null };
-  const pitchTo = (a) => clamp((a - e.pitch) / 12, -1, 1);
-  if (t < B2_D.t0) return { ...track(sim, B2_DIVE_REF(t)), phase: null };            // ① 低速平飛
-  const tFull = B2_D.t0 + B2_D.squeeze, tPull = tFull + B2_D.full;
-  if (t < tFull) return { thr: B2_D.thr1, pitch: pitchTo(B2_D.tilt), ...lv };         // ② 壓到看地板，油門還不多
-  if (t < tPull) return { thr: 1, pitch: pitchTo(B2_D.tilt), ...lv };                 // ③ 油門推滿，邊加速邊下沉
-  if (!m.exit) {                                                                      // ④ 拉回正，油門保持全開直到下沉停止
-    m.pull = m.pull ?? t;
-    if (e.pitch < 8 && sim.v[2] >= 0) m.exit = t;
-    else return { thr: 1, pitch: pitchTo(0), ...lv };
-  }
-  const thr = v.balloon ? B2_D.balloonThr : clamp(HOVER / Math.max(0.3, sim.R[8]), 0, 1); // ⑤ 收油到懸停附近（對照：油門沒收 → 上浮）
-  return { thr, pitch: pitchTo(0), ...lv };
+  const D = B2_D, m = (mem.marks = mem.marks || {}), e = euler(sim.R), lv = { roll: clamp(-e.roll * 8 / 500, -1, 1), yaw: 0, phase: null };
+  if (t < D.t0) { m.th0 = e.pitch; return { ...track(sim, B2_DIVE_REF(t, v.z0 ?? D.z)), phase: null }; }  // ① 懸停（帶一點前進速度）
+  const thMax = D.tilt + (v.mode === 'coupled' ? D.coupledExtra : 0), tMax = D.t0 + D.rise;
+  const cmd = b2Angle(t, m.th0 ?? 0, thMax), pitch = clamp((cmd.rate + 14 * (cmd.th - e.pitch)) / 500, -1, 1); // 角度指令的前饋角速度（°/s）÷ 滿桿 500°/s ＋ 誤差回饋
+  const tilt = Math.acos(clamp(sim.R[8], -1, 1)) / D2R, need = clamp(thrForLevel(tilt).thr, 0, 1);
+  if (!m.tMax && t >= tMax) m.tMax = tMax;
+  if (m.tMax && !m.release && tilt <= D.release && t > tMax + D.pause) m.release = t;      // 傾角回到 release 以下才收油
+  if (m.release && !m.flat && tilt < 3) m.flat = t;
+  let thr;
+  if (v.mode === 'pitchonly') thr = HOVER;                                                   // 分解練習：油門固定在懸停
+  else if (m.release) thr = v.mode === 'balloon' ? D.balloonThr : (m.flat && t < m.flat + (v.dipT ?? D.dipT) ? HOVER - (v.dip ?? D.dip) : need); // 回油：機身回平後略低於懸停一小段、把多出的上升速度吃掉，再回懸停（對照 balloon：沒收 → 上浮）
+  else if (v.mode === 'slam') thr = 1;                                                       // 對照：0→100 甩上去
+  else if (v.mode === 'wide') thr = clamp(Math.max(need, HOVER + (1 - HOVER) * (t - D.t0) / Math.max(0.05, D.rise - D.wideLead)), 0, 1); // 放寬：提早到頂
+  else if (t >= tMax) thr = 1;                                                               // 最低點到拉回前段：滿油
+  else thr = need;                                                                           // 前傾：油門沿懸停 ÷ cosθ 上升
+  // 拉回前段維持滿油（dive／balloon／coupled），release 之後才收
+  if (!m.release && t >= tMax && v.mode !== 'pitchonly') thr = 1;
+  return { thr, pitch, ...lv };
 }
 const B2 = {
   id: 'B2', dur: 6.5, cam: 'side', side: { follow: [3, -14, 3] }, fullTrail: true,
-  variants: [{ key: 'dive', dive: true }, { key: 'jet', tilt: Math.acos(HOVER) / D2R, bal: true }, { key: 'short', tilt: 30, bal: false }, { key: 'balloon', dive: true, balloon: true }],
+  variants: [{ key: 'dive', dive: true, mode: 'dive' }, { key: 'wide', dive: true, mode: 'wide', dip: 0.08, dipT: 0.6 }, { key: 'pitchonly', dive: true, mode: 'pitchonly', z0: 10 }, { key: 'jet', tilt: Math.acos(HOVER) / D2R, bal: true }, { key: 'short', tilt: 30, bal: false }, { key: 'balloon', dive: true, mode: 'balloon' }, { key: 'slam', dive: true, mode: 'slam' }, { key: 'coupled', dive: true, mode: 'coupled' }],
   start: (sim, v) => {
-    if (v && v.dive) { startFromRef(sim, B2_DIVE_REF); return; }
+    if (v && v.dive) { startFromRef(sim, (t) => B2_DIVE_REF(t, v.z0 ?? B2_D.z)); return; }
     sim.reset([-25, 0, 3], [0, 0, 0], yawOnly(0)); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 };
   },
   ctrl: (v, sim, t, mem) => {
@@ -130,8 +147,8 @@ const B2 = {
   ghost: () => [],
   stages: (v) => {
     if (!v.dive) return [B2_T.hover, B2_T.ramp, B2_T.accEnd, B2_T.recEnd, 6.5];
-    const m = probe(B2, v).mem.marks, tFull = B2_D.t0 + B2_D.squeeze;
-    return [B2_D.t0, tFull, tFull + B2_D.full, m.exit, 6.5];
+    const m = probe(B2, v).mem.marks;
+    return [B2_D.t0, m.tMax, m.release, m.flat, m.flat + (v.dipT ?? B2_D.dipT), 6.5];
   },
 };
 

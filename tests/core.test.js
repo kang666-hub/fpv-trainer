@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Sim, HOVER, euler } from '../js/core.js';
+import { thrForLevel } from '../js/forces.js';
 import { LESSONS, runDemo, stageProfile, controlDefaults, controlValues } from '../js/demos.js';
 
 const lesson = (id) => LESSONS.find((l) => l.id === id);
@@ -51,23 +52,74 @@ test('B2 飛法：加速段最高點比進場高 < 0.5 m，速度峰值 > 進場
   assert.ok(Math.max(...zs(c)) - c.rec[0].p[2] > 2, '對照沒有上浮');
 });
 
-test('B2 dive：最低高度 ≥ 1.0m、速度峰值 ≥ 18 m/s、改出後 1 秒 |垂直速度| < 0.3、改出後 2 秒內不上浮（≤ 改出點 + 0.3m）', () => {
-  const r = run('B2', 'dive'), m = r.mem.marks;
-  assert.ok(m.exit, 'dive 沒有改出');
-  assert.equal(r.rec[0].p[2], 3); assert.ok(Math.abs(speed(r.rec[0]) - 5) < 0.01, '進場應為 3m、5 m/s');
-  assert.ok(Math.min(...zs(r)) >= 1.0, `最低高度 ${Math.min(...zs(r)).toFixed(2)} m`);
-  assert.ok(Math.max(...r.rec.map(speed)) >= 18, `速度峰值 ${Math.max(...r.rec.map(speed)).toFixed(1)} m/s`);
-  const near = (t) => r.rec.reduce((a, x) => (Math.abs(x.t - t) < Math.abs(a.t - t) ? x : a)), ex = near(m.exit);
-  assert.ok(Math.abs(near(m.exit + 1).v[2]) < 0.3, `改出後 1 秒垂直速度 ${near(m.exit + 1).v[2].toFixed(2)}`);
-  const top = Math.max(...r.rec.filter((x) => x.t >= m.exit && x.t <= m.exit + 2).map((x) => x.p[2]));
-  assert.ok(top <= ex.p[2] + 0.3, `改出後 2 秒內上浮 ${(top - ex.p[2]).toFixed(2)} m`);
+// ===== B2 噴射（Kuan 實測打法）=====
+const tiltOf2 = (x) => Math.acos(Math.max(-1, Math.min(1, x.R[8]))) * 180 / Math.PI;
+function b2Metrics(key) {
+  const r = run('B2', key), m = r.mem.marks, rec = r.rec, z0 = rec[0].p[2];
+  const t0 = 1.0, tilts = rec.map(tiltOf2);
+  let ip = 0; tilts.forEach((a, i) => { if (a > tilts[ip]) ip = i; });
+  const tStart = rec.find((x) => x.t >= t0 && Math.abs(x.pitch) > 0.02).t, tPeak = rec[ip].t;
+  const tFlat = m.flat, near = (t) => rec.reduce((a, x) => (Math.abs(x.t - t) < Math.abs(a.t - t) ? x : a));
+  const w2 = rec.filter((x) => x.t >= tFlat && x.t <= tFlat + 2).map((x) => x.p[2]);
+  const pause = (() => { let n = 0; for (let i = ip; i < rec.length && Math.abs(rec[i].pitch) < 0.03; i++) n++; for (let i = ip - 1; i >= 0 && Math.abs(rec[i].pitch) < 0.03; i--) n++; return n / 240; })();
+  return { r, m, rec, z0, tStart, tPeak, tFlat, rise: tPeak - tStart, pull: tFlat - tPeak, pause, maxTilt: tilts[ip],
+    bounce: Math.max(...w2) - near(tFlat).p[2], vz1: near(tFlat + 1).v[2], zmin: Math.min(...rec.map((x) => x.p[2])), vpeak: Math.max(...rec.map(speed)), thrAfter: near(tFlat + 0.1).thr,
+    thr98: rec.find((x) => x.t >= t0 && x.thr >= 0.98)?.t, near, tilts };
+}
+
+test('B2 dive：前傾 0.45–0.7 秒、停頓 ≤ 0.05 秒、拉回 0.25–0.35 秒、前傾 ÷ 拉回 ≥ 1.5；前傾段油門貼著懸停 ÷ cosθ；拉回前段滿油；回平後略低於懸停', () => {
+  const d = b2Metrics('dive');
+  assert.ok(d.rise >= 0.45 && d.rise <= 0.7, `前傾 ${d.rise.toFixed(3)} 秒`);
+  assert.ok(d.pause <= 0.05, `最低點停頓 ${d.pause.toFixed(3)} 秒`);
+  assert.ok(d.pull >= 0.25 && d.pull <= 0.35, `拉回 ${d.pull.toFixed(3)} 秒`);
+  assert.ok(d.rise / d.pull >= 1.5, `前傾 ÷ 拉回 = ${(d.rise / d.pull).toFixed(2)}`);
+  for (const x of d.rec.filter((x) => x.t >= d.tStart && x.t <= d.tPeak)) {
+    const want = Math.min(1, thrForLevel(tiltOf2(x)).thr);
+    assert.ok(Math.abs(x.thr - want) < 0.05 || x.t > d.tPeak - 0.06, `前傾段油門 ${x.thr.toFixed(2)} vs ${want.toFixed(2)}（t=${x.t.toFixed(2)}）`);
+  }
+  assert.ok(Math.abs(d.tPeak - d.thr98) < 0.1, `油門到頂與傾角最大相差 ${(d.tPeak - d.thr98).toFixed(3)} 秒`);
+  const half = d.rec.filter((x) => x.t >= d.tPeak && x.t <= d.tPeak + d.pull * 0.5);
+  assert.ok(half.every((x) => x.thr >= 0.95), '拉回前 50% 油門應 ≥ 95%');
+  assert.ok(d.thrAfter <= HOVER + 0.05, `回平後 0.1 秒油門 ${d.thrAfter.toFixed(2)}`);
+  assert.ok(d.thrAfter < HOVER, '回平後油門應略低於懸停');
 });
 
-test('B2 balloon：前段同 dive，改出後 2 秒比改出點高 ≥ 3m', () => {
-  const r = run('B2', 'balloon'), m = r.mem.marks, near = (t) => r.rec.reduce((a, x) => (Math.abs(x.t - t) < Math.abs(a.t - t) ? x : a));
-  assert.ok(near(m.exit + 2).p[2] - near(m.exit).p[2] >= 3, `只比改出點高 ${(near(m.exit + 2).p[2] - near(m.exit).p[2]).toFixed(2)} m`);
-  const d = run('B2', 'dive');
-  assert.equal(m.exit, d.mem.marks.exit, '前 4 步應與 dive 相同');
+test('B2 dive：拉平後 2 秒內最高點 ≤ 拉平點 + 0.6m、1 秒後 |垂直速度| < 0.5；最低高度 ≥ 進場 − 2m；速度峰值 ≥ 12 m/s', () => {
+  const d = b2Metrics('dive');
+  assert.ok(d.bounce <= 0.6, `彈升 ${d.bounce.toFixed(2)} m`);
+  assert.ok(Math.abs(d.vz1) < 0.5, `1 秒後垂直速度 ${d.vz1.toFixed(2)}`);
+  assert.ok(d.zmin >= d.z0 - 2, `最低高度 ${d.zmin.toFixed(2)}`);
+  assert.ok(d.vpeak >= 12, `速度峰值 ${d.vpeak.toFixed(1)} m/s`);
+});
+
+test('B2 wide：油門比傾角最大早 0.15–0.3 秒到頂並維持到收油角；彈升 > dive 且 ≤ 2m；速度峰值 ≥ 12', () => {
+  const w = b2Metrics('wide'), d = b2Metrics('dive');
+  const lead = w.tPeak - w.thr98;
+  assert.ok(lead >= 0.15 && lead <= 0.3, `提早 ${lead.toFixed(3)} 秒`);
+  const hold = w.rec.filter((x) => x.t >= w.thr98 && x.t < w.m.release);
+  assert.ok(hold.every((x) => x.thr >= 0.98), '到頂後到收油前油門應 ≥ 98%');
+  assert.ok(w.thrAfter <= HOVER + 0.05, `回平後 0.1 秒油門 ${w.thrAfter.toFixed(2)}`);
+  assert.ok(w.bounce > d.bounce && w.bounce <= 2, `wide 彈升 ${w.bounce.toFixed(2)}、dive ${d.bounce.toFixed(2)}`);
+  assert.ok(w.vpeak >= 12, `速度峰值 ${w.vpeak.toFixed(1)}`);
+});
+
+test('B2 pitchonly：油門全程 = 懸停 ±0.5%；最大傾角時間與 dive 相差 < 0.05；進場 10m、最低高度 ≥ 2m、掉高比 dive 多 > 1m', () => {
+  const p = b2Metrics('pitchonly'), d = b2Metrics('dive');
+  assert.ok(p.rec.every((x) => x.t < 1.0 || Math.abs(x.thr - HOVER) <= HOVER * 0.005), '油門應固定在懸停');
+  assert.ok(Math.abs(p.tPeak - d.tPeak) < 0.05, `最大傾角時間差 ${Math.abs(p.tPeak - d.tPeak).toFixed(3)}`);
+  assert.equal(p.z0, 10); assert.ok(p.zmin >= 2, `最低高度 ${p.zmin.toFixed(2)}`);
+  assert.ok((p.z0 - p.zmin) - (d.z0 - d.zmin) > 1, '掉高應比 dive 多 1m 以上');
+});
+
+test('B2 slam：前 0.5 秒高度上升 > 0.5m；coupled：最大傾角 ≥ dive + 10°，掉高比 dive 多 > 1m；balloon：拉平後 2 秒比拉平點高 ≥ 3m 且前段同 dive', () => {
+  const s = b2Metrics('slam'); assert.ok(s.near(1.5).p[2] - s.near(1.0).p[2] > 0.5, '甩油門沒有往上竄');
+  const c = b2Metrics('coupled'), d = b2Metrics('dive');
+  assert.ok(c.maxTilt >= d.maxTilt + 10, `傾角 ${c.maxTilt.toFixed(1)} vs ${d.maxTilt.toFixed(1)}`);
+  assert.ok((c.z0 - c.zmin) - (d.z0 - d.zmin) > 1, `coupled 掉高 ${(c.z0 - c.zmin).toFixed(2)} vs ${(d.z0 - d.zmin).toFixed(2)}`);
+  assert.equal(c.r.touched, false);
+  const b = b2Metrics('balloon');
+  assert.ok(b.near(b.tFlat + 2).p[2] - b.near(b.tFlat).p[2] >= 3, '上浮不足');
+  assert.equal(b.m.release, d.m.release, '前段應與 dive 相同');
 });
 
 test('B3 飛法：Roll 桿量 > 5% 的時間 < Pitch < Yaw', () => {
