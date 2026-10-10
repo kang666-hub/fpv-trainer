@@ -1,5 +1,6 @@
 // 外殼：分頁切換、讀 lessons.json、組裝畫面、主迴圈。
 import { Sim, HOVER, yawOnly, euler } from './core.js';
+import { throttleSplit } from './forces.js';
 import { LESSONS, FREE, lessonStart, lessonCtrl, stageProfile, controlDefaults } from './demos.js';
 import { scene, viewCam, camFromBody, sizeCanvas, drawStick, drawAlt, drawOSD, drawCurve, resetChase } from './view.js';
 import * as store from './progress.js';
@@ -122,6 +123,14 @@ function buildControls() {
   });
 }
 const fillTpl = (tpl, r) => String(tpl || '').replace(/\{(\w+)\}/g, (_, k) => (r.vals[k] === undefined ? '' : Number(r.vals[k]).toFixed(r.digits?.[k] ?? 0)));
+// 油門分力讀數（示範設 sens: true）：同樣多推 5% 油門，在目前傾角下多少往上、多少往側
+const SENS_D = 0.05;
+function updateSens() {
+  const el = $('sens'), on = !L.free && L.sens && legendText && legendText.sens;
+  el.hidden = !on; if (!on) return;
+  const tilt = Math.acos(Math.max(-1, Math.min(1, sim.R[8]))) * 180 / Math.PI, r = throttleSplit(tilt, SENS_D);
+  setTxt('sens', legendText.sens.replace('{d}', (SENS_D * 100).toFixed(0)).replace('{up}', r.up.toFixed(2)).replace('{side}', r.side.toFixed(2)).replace('{tilt}', tilt.toFixed(0)));
+}
 function updateInteract() {
   if (!L.controls || !L.readout) return;
   const r = L.readout(L.variants[vIdx], sim, ctl), tx = L.readoutText || {};
@@ -420,6 +429,7 @@ function frame(now) {
     $('legend').hidden = fpvMain; // 推力／垂直分量／重力線在 FPV 裡看不到
     setTxt('fpvtag', fpvMain ? '第三人稱' : 'FPV 25°');
     if (!L.free) { updateTimeline(); updateInteract(); }
+    updateSens();
     const stg = !L.free && L.variants[vIdx].stages && stageIdx >= 0 ? L.variants[vIdx].stages[stageIdx] : null;
     setTxt('phase', L.free ? (ctrlOut.phase || '') : stg ? `${CIRC[stageIdx] || ''} ${stg.label}` : '');
     if (L.free) setTxt('modeTag', gpCalibrated() && !wiz ? '遙控器' : '你在飛');

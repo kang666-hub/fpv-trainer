@@ -159,7 +159,7 @@ function overSteepCtrl(sim, t) {
   };
 }
 const B3 = {
-  id: 'B3', dur: 8, cam: 'chase', side: { pos: [-15, -17, 11], look: [0, 0, 2] },
+  id: 'B3', dur: 8, sens: true, cam: 'chase', side: { pos: [-15, -17, 11], look: [0, 0, 2] },
   variants: [{ key: 'coord', thrOn: B3_ON.thr }, { key: 'nocomp', thrOn: Infinity }, { key: 'steep', P: B3_STEEP, on: B3_STEEP_ON }, { key: 'toosteep', over: true }],
   start: (sim, v) => {
     if (v && v.over) { const r = { p: [-B3_OVER.V * B3_OVER.T0, -B3_P.R, B3_OVER.z0], v: [B3_OVER.V, 0, 0], psi: 0, psid: 0 }; sim.reset(r.p, r.v, attFor(r)); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; return; }
@@ -212,7 +212,7 @@ const tcOf = (P) => P.ang / (P.V / P.R);
 const B4_SMALL = { T0: 1.0, R: 16.5, V: 8, z: 4, ang: 0.8 * Math.PI, softA: true, rt: 0.5 };
 const B4_SMALL_ON = { yaw: 0.3, balance: 0.7 }; // 相對進彎時間：Yaw 在 Roll 之後 0.3 秒才放行；0.7 秒後兩桿進入平衡
 const B4 = {
-  id: 'B4', dur: 8, cam: 'chase', side: { pos: [-15, -17, 11], look: [0, 0, 2] },
+  id: 'B4', dur: 8, sens: true, cam: 'chase', side: { pos: [-15, -17, 11], look: [0, 0, 2] },
   variants: [{ key: 'small', P: B4_SMALL, on: B4_SMALL_ON }, { key: 'yawonly' }, { key: 'smallnocomp', P: B4_SMALL, on: B4_SMALL_ON, noComp: true }],
   start: (sim, v) => startFromRef(sim, (t) => refTurn(t, (v && v.P) || B4_A)),
   ctrl: (v, sim, t, mem) => {

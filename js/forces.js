@@ -23,3 +23,9 @@ export function thrForLevel(tiltDeg) {
   const thr = HOVER / c;
   return { thr, ok: thr <= 1 + 1e-9 };
 }
+
+// 油門變化 dThr（0–1）造成的推力變化，在傾角 tiltDeg 下拆成「往上」與「往側」，單位 g：dT = dThr × 推重比；up = dT × cosθ；side = dT × sinθ
+export function throttleSplit(tiltDeg, dThr) {
+  const dT = dThr * TMAX / G;
+  return { up: dT * Math.cos(tiltDeg * D2R), side: dT * Math.sin(tiltDeg * D2R) };
+}
