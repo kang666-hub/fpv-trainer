@@ -47,8 +47,10 @@ function drawSky(ctx, cam) {
   }
   b.cx.putImageData(b.img, 0, 0); ctx.imageSmoothingEnabled = true; ctx.drawImage(b.cv, 0, 0, cam.W, cam.H);
 }
+// 地面網格的格距：鏡頭離地越高格子越大（總範圍 N × S 公尺要夠遠，FPV 在 10–20m 高度才看得到地面）
+export const gridSpacing = (camZ) => Math.min(12, 2 * Math.max(1, Math.ceil(Math.max(0, camZ) / 8)));
 function drawGrid(ctx, cam) {
-  const S = 2, N = 22, cx = Math.round(cam.c[0] / S) * S, cy = Math.round(cam.c[1] / S) * S;
+  const S = gridSpacing(cam.c[2]), N = 22, cx = Math.round(cam.c[0] / S) * S, cy = Math.round(cam.c[1] / S) * S;
   ctx.lineWidth = 1;
   for (let k = -N; k <= N; k++) for (let m = -N; m < N; m += 2) {
     for (const dir of [0, 1]) {
@@ -194,15 +196,19 @@ export function sizeCanvas(cv, ratio) {
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
   const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); return { ctx, W: w, H: h };
 }
+// 這個畫面要畫哪些東西（純函式，測試用）：FPV（withDrone 為 false）只看地面網格，起始高度參考面只在第三人稱畫，否則 FPV 裡會變成一片空中網格
+export function scenePlan(S, withDrone) {
+  return { ground: true, refPlane: !!withDrone && !!S.refPlane, drone: !!withDrone };
+}
 export function scene(ctx, cam, S, withDrone) {
-  const sim = S.sim;
-  drawSky(ctx, cam); drawGrid(ctx, cam);
+  const sim = S.sim, plan = scenePlan(S, withDrone);
+  drawSky(ctx, cam); if (plan.ground) drawGrid(ctx, cam);
   const poles = (S.poles || []).map((pp) => ({ pp, z: V.dot(V.sub([pp[0], pp[1], 3], cam.c), cam.f) }));
   const dz = V.dot(V.sub(sim.p, cam.c), cam.f);
   poles.filter((o) => o.z >= dz).sort((a, b) => b.z - a.z).forEach((o) => drawPole(ctx, cam, o.pp));
   if (S.ghost.length) poly(ctx, cam, S.ghost, 'rgba(255,255,255,0.4)', 1.5, [6, 6]);
   if (S.trail.length > 1) poly(ctx, cam, S.trail, 'rgba(255,106,31,0.55)', 2);
-  if (S.refPlane) drawRefPlane(ctx, cam, S.refPlane);
+  if (plan.refPlane) drawRefPlane(ctx, cam, S.refPlane);
   if (S.marks) drawMarks(ctx, cam, S.marks);
   if (withDrone) drawDrone(ctx, cam, sim, S.layers);
   poles.filter((o) => o.z < dz).sort((a, b) => b.z - a.z).forEach((o) => drawPole(ctx, cam, o.pp));

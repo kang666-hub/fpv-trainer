@@ -362,6 +362,15 @@ test('起始高度參考面：起始高度 > 8m 的示範有 refPlane（含 S2�
   assert.equal(lesson('S2').refPlane, true); assert.equal(lesson('S3').refPlane, true);
 });
 
+test('參考面不進 FPV：FPV 的繪製計畫有地面網格、沒有參考面；第三人稱兩者都有；FPV 在 10–20m 高度時地面網格範圍夠遠', async () => {
+  const { scenePlan, gridSpacing } = await import('../js/view.js'), S = { refPlane: { x: 0, y: 0, z: 20 } };
+  assert.deepEqual(scenePlan(S, false), { ground: true, refPlane: false, drone: false });
+  assert.deepEqual(scenePlan(S, true), { ground: true, refPlane: true, drone: true });
+  assert.equal(scenePlan({ refPlane: null }, true).refPlane, false);
+  for (const z of [3, 10, 15, 20, 45]) assert.ok(22 * gridSpacing(z) >= 4.4 * z || gridSpacing(z) === 12, `高度 ${z}m 格距 ${gridSpacing(z)}`);
+  assert.equal(gridSpacing(1), 2);
+});
+
 test('A2 8 字：先轉一整圈（航向累計 ≥ 340°）再反向轉回（結束航向回到起點）且高度穩定', () => {
   const r = run('A2', 'eight'), z = zs(r);
   assert.ok(headingChange(r) >= 340, `航向累計 ${headingChange(r).toFixed(0)}°`);
