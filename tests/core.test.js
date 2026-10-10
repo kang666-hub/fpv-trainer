@@ -184,6 +184,16 @@ test('B4 small（微傾角過彎）：Roll 比 Yaw 早 ≥ 0.15 秒；彎中坡�
   assert.equal(r.touched, false);
 });
 
+test('B4 small 不飄移：彎中（進彎 0.7 秒後到出彎前）機頭方向與速度方向的夾角平均 < 10°、最大 < 15°', () => {
+  const r = run('B4', 'small'), P = { T0: 1.0, R: 16.5, V: 8, ang: 0.8 * Math.PI }, Tc = P.ang / (P.V / P.R);
+  const ang = r.rec.filter((x) => x.t >= P.T0 + 0.7 && x.t < P.T0 + Tc).map((x) => {
+    const nose = Math.atan2(x.R[3], x.R[0]), vel = Math.atan2(x.v[1], x.v[0]); let d = (nose - vel) * 180 / Math.PI; d = ((d + 540) % 360) - 180; return Math.abs(d);
+  });
+  const mean = ang.reduce((a, b) => a + b, 0) / ang.length;
+  assert.ok(mean < 10, `平均夾角 ${mean.toFixed(1)}°`);
+  assert.ok(Math.max(...ang) < 15, `最大夾角 ${Math.max(...ang).toFixed(1)}°`);
+});
+
 test('B4 smallnocomp：3 秒內掉高 > 0.5m；yawonly：航向轉 ≥ 90° 但路線方向變化 < 30°', () => {
   const r = run('B4', 'smallnocomp'), z0 = r.rec[0].p[2], z3 = r.rec.find((x) => x.t >= 1.0 + 3).p[2];
   assert.ok(z0 - z3 > 0.5, `3 秒只掉 ${(z0 - z3).toFixed(2)} m`);
