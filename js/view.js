@@ -331,3 +331,11 @@ export function drawThrCurve(cv, pts, tx) {
     const e = pts[pts.length - 1]; c.beginPath(); c.arc(X(Math.min(90, e.tilt)), Y(e.thr), 4.5, 0, 7); c.fillStyle = '#ff6a1f'; c.fill(); c.strokeStyle = '#14100c'; c.lineWidth = 2; c.stroke();
   }
 }
+
+// FPV 小畫面的垂直速度讀數（B5、B5a）：往上綠「↑ 4.5 m/s」、往下橘「↓ 2.0 m/s」
+export function drawVs(ctx, W, H, vz) {
+  const fs = Math.max(10, Math.min(14, W / 18)), up = vz >= 0, txt = `${up ? '↑' : '↓'} ${Math.abs(vz).toFixed(1)} m/s`;
+  ctx.save(); ctx.font = `700 ${fs}px "JetBrains Mono",ui-monospace,monospace`; ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic';
+  ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(8,10,13,0.9)'; ctx.strokeText(txt, W - 6, H - 6);
+  ctx.fillStyle = up ? '#5be37a' : '#ff9a3c'; ctx.fillText(txt, W - 6, H - 6); ctx.restore();
+}

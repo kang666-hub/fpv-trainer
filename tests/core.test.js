@@ -259,9 +259,10 @@ test('B5a 全部變體：拉油門段油門 ≥ 70% 持續 0.3–0.6 秒、機�
     assert.ok(b.pull.every((x) => x.thr >= 0.7), `${key} 拉油門段油門不足`);
     assert.ok(dur >= 0.3 && dur <= 0.6, `${key} 拉油門 ${dur.toFixed(2)} 秒`);
     assert.ok(Math.max(...b.pull.map((x) => Math.max(Math.abs(euler(x.R).roll), Math.abs(euler(x.R).pitch)))) < 5, `${key} 拉油門段機身傾斜過大`);
-    assert.ok(b.vzAtRoll >= 3, `${key} Roll 開始時垂直速度 ${b.vzAtRoll.toFixed(2)}`);
+    assert.ok(b.vzAtRoll >= 5, `${key} Roll 開始時垂直速度 ${b.vzAtRoll.toFixed(2)}`);
+    assert.ok(b.apex.p[2] - b.z0 >= 3, `${key} 最高點只比起始高 ${(b.apex.p[2] - b.z0).toFixed(2)} m`);
     assert.ok(Math.max(...b.rollSeg.map((x) => x.thr)) <= 0.10, `${key} Roll 段油門過高`);
-    assert.ok(b.apex.t - b.m.roll0 >= 0.1, `${key} 最高點只在 Roll 開始後 ${(b.apex.t - b.m.roll0).toFixed(2)} 秒`);
+    assert.ok(b.apex.t - b.m.roll0 >= 0.2, `${key} 最高點只在 Roll 開始後 ${(b.apex.t - b.m.roll0).toFixed(2)} 秒`);
   }
 });
 
@@ -369,6 +370,10 @@ test('參考面不進 FPV：FPV 的繪製計畫有地面網格、沒有參考面
   assert.equal(scenePlan({ refPlane: null }, true).refPlane, false);
   for (const z of [3, 10, 15, 20, 45]) assert.ok(22 * gridSpacing(z) >= 4.4 * z || gridSpacing(z) === 12, `高度 ${z}m 格距 ${gridSpacing(z)}`);
   assert.equal(gridSpacing(1), 2);
+});
+
+test('fpvVs 旗標只在 B5a、B5', () => {
+  assert.deepEqual(LESSONS.filter((l) => l.fpvVs).map((l) => l.id).sort(), ['B5', 'B5a']);
 });
 
 test('A2 8 字：先轉一整圈（航向累計 ≥ 340°）再反向轉回（結束航向回到起點）且高度穩定', () => {

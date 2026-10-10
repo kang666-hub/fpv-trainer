@@ -2,7 +2,7 @@
 import { Sim, HOVER, yawOnly, euler } from './core.js';
 import { throttleSplit } from './forces.js';
 import { LESSONS, FREE, lessonStart, lessonCtrl, stageProfile, controlDefaults } from './demos.js';
-import { scene, viewCam, camFromBody, sizeCanvas, drawStick, drawAlt, drawOSD, drawCurve, drawThrCurve, resetChase } from './view.js';
+import { scene, viewCam, camFromBody, sizeCanvas, drawStick, drawAlt, drawOSD, drawCurve, drawThrCurve, drawVs, resetChase } from './view.js';
 import { startHeading } from './cams.js';
 import * as store from './progress.js';
 import { CHANNELS, normChannels, applyChannels, freeStart } from './free.js';
@@ -432,6 +432,7 @@ function frame(now) {
     const drawFpv = (cv, ratio, osd) => {
       const c = sizeCanvas(cv, ratio); scene(c.ctx, camFromBody(sim.p, sim.R, c.W, c.H, 25, 110), S, false);
       if (osd) drawOSD(c.ctx, c.W, c.H, { alt: sim.p[2], spd: Math.hypot(...sim.v), thr: sim.st.thr });
+      else if (L.fpvVs && !L.free) drawVs(c.ctx, c.W, c.H, sim.v[2]);
     };
     const cvView = $('view'), bigRatio = cvView.clientWidth < 600 && innerWidth <= 600 ? 4 / 3 : 16 / 10;
     if (fpvMain) { drawFpv(cvView, bigRatio, true); drawChase($('fpv'), 16 / 9); }

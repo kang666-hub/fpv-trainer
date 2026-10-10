@@ -256,7 +256,7 @@ const B4 = {
 const B5_V = 6, B5_R = 3, B5_Z = 12;
 const B5_LEVEL = (t) => ({ p: [-B5_V + B5_V * t, 0, B5_Z], v: [B5_V, 0, 0], psi: 0, psid: 0 });
 const B5 = {
-  id: 'B5', dur: 7, refPlane: true, cam: 'rear', rear: { back: 11.2, backM: 12.0 }, side: { pos: [4, -21, 7.5], look: [4, 0, 7.5] }, fullTrail: true,
+  id: 'B5', dur: 7, refPlane: true, fpvVs: true, cam: 'rear', rear: { back: 11.2, backM: 12.0 }, side: { pos: [4, -21, 7.5], look: [4, 0, 7.5] }, fullTrail: true,
   variants: [{ key: 'pull', pullUp: true }, { key: 'direct', pullUp: false }, { key: 'overthr', pullUp: false, over: true }],
   start: (sim) => startFromRef(sim, B5_LEVEL),
   ctrl: (v, sim, t, mem) => {
@@ -334,7 +334,7 @@ const B5 = {
 
 // B5a 原地破 S（退階）：10m 懸停 → 拉油門往上（帶出往上的速度）→ 收油＋Roll 翻 180°（一桿到位，翻轉時還在往上）→ 歸零（搖桿全回中）→ Pitch 翻 180° 回正（一桿到位）→ 補油接住。
 // 最後機頭朝向與開始相反。目的：把兩次 180° 練乾淨，畫面一次到位。
-const B5A = { z: 10, t0: 0.5, pullThr: 0.85, pullT: 0.45, stick: 0.85, zero: 0.12, thrFlip: 0.05, zTarget: 10 };
+const B5A = { z: 10, t0: 0.5, pullThr: 0.95, pullT: 0.55, stick: 0.85, zero: 0.12, thrFlip: 0.05, zTarget: 10 };
 // 把某一軸（key）轉過 target 度：mem 記累計角度，轉到剛好 target 就回 0。dir = ±1
 function b5aPulse(mem, key, target, dir) {
   const a = (mem.acc = mem.acc || {});
@@ -344,7 +344,7 @@ function b5aPulse(mem, key, target, dir) {
   return { stick: dir * st, done: target - a[key] < 1e-6 };
 }
 const B5a = {
-  id: 'B5a', dur: 7, refPlane: true, cam: 'rear', rear: { back: 11.2, backM: 12.0 }, side: { follow: [3, -12, 2] }, fullTrail: true,
+  id: 'B5a', dur: 7, refPlane: true, fpvVs: true, cam: 'rear', rear: { back: 11.2, backM: 12.0 }, side: { follow: [3, -12, 2] }, fullTrail: true,
   variants: [{ key: 'rollR_pull', rollDir: 1, pitchDir: -1 }, { key: 'rollL_push', rollDir: -1, pitchDir: 1 }, { key: 'messy', rollDir: 1, pitchDir: -1, messy: true }],
   start: (sim) => { sim.reset([0, 0, B5A.z], [0, 0, 0], yawOnly(0)); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; },
   ctrl: (v, sim, t, mem) => {
