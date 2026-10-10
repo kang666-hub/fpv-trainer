@@ -18,14 +18,15 @@ export function chaseCam(sim, prev, dt, cfg = CHASE) {
   return { psi, c, pos: c, look: V.add(sim.p, V.mul(h, cfg.look)) };
 }
 
-// 機尾後方：鏡頭的「位置」跟著飛機（平滑 tau 秒，再往速度方向預先移 lead 秒抵銷落後），「方向」固定＝示範開始時機頭方向的正後方、
-// 略高、略往下看。飛機翻轉、回頭飛都不會讓鏡頭轉；往前飛＝遠離觀看者。
-export const REAR = { back: 6, up: 2, tau: 0.3, lead: 0.2, pitchDown: 8 * D2R };
+// 機尾後方：鏡頭「剛性跟隨」飛機位置（不做位置平滑：平滑會讓鏡頭落後飛機數公尺，箭頭就出鏡），方向固定＝示範開始時機頭正後方
+// 往側邊偏 az、俯角 pitchDown。飛機翻轉、回頭飛都不會讓鏡頭轉；往前飛＝遠離觀看者。
+// 距離 back 由各示範設定（要讓飛機與所有力的箭頭端點都在畫面內、四邊留 ≥ 8%）。飛機撞地停住（sim.crashed）時鏡頭凍結，不再移動。
+export const REAR = { back: 10.8, az: 18 * D2R, pitchDown: 18 * D2R };
 export function startHeading(sim) { const xb = M.col(sim.R, 0); return Math.hypot(xb[0], xb[1]) < 0.2 ? 0 : Math.atan2(xb[1], xb[0]); }
 export function rearCam(sim, heading, prev, dt, cfg) {
-  const k = { ...REAR, ...(cfg || {}) }, h = [Math.cos(heading), Math.sin(heading), 0];
-  const goal = V.add(sim.p, V.mul(sim.v, k.lead), V.mul(h, -k.back), [0, 0, k.up]);
-  const pos = prev ? approach(prev.pos, goal, dt, k.tau) : goal;
-  const dir = [h[0] * Math.cos(k.pitchDown), h[1] * Math.cos(k.pitchDown), -Math.sin(k.pitchDown)];
+  if (prev && sim.crashed) return prev;
+  const k = { ...REAR, ...(cfg || {}) }, a = heading + k.az, c = Math.cos(k.pitchDown);
+  const dir = [Math.cos(a) * c, Math.sin(a) * c, -Math.sin(k.pitchDown)];
+  const pos = V.sub(sim.p, V.mul(dir, k.back));
   return { pos, look: V.add(pos, V.mul(dir, 20)) };
 }

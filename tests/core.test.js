@@ -281,7 +281,7 @@ test('lessons.json：B2 有 8 個變體（4 飛法＋4 對照）、B3／B4 的�
 });
 
 // 鏡頭：以 60Hz 逐格餵 cams.js，量鏡頭到飛機的距離與「飛機偏離鏡頭注視方向」的夾角
-function camTrace(id, key, mode) {
+function camTrace(id, key, mode) { // 追尾鏡頭用（機尾後方的測試在上面）
   const L = lesson(id), v = variant(id, key), r = runDemo(L, v), rec = r.rec, fake = (x) => ({ p: x.p, v: x.v, R: x.R });
   const h0 = startHeading(fake(rec[0])), angleBetween = (a, b) => Math.acos(Math.max(-1, Math.min(1, V.dot(V.norm(a), V.norm(b))))) * 180 / Math.PI;
   let st = null, maxD = 0, minD = 1e9, maxA = 0, maxRate = 0, prevPsi = null;
@@ -300,11 +300,38 @@ test('預設視角：B2、B5a、B5、S2、S3 為機尾後方；B3、B4 維持追
   for (const id of ['B3', 'B4']) assert.equal(lesson(id).cam, 'chase', id);
 });
 
-test('機尾後方：B2、B5a、B5、S2、S3 全部變體，鏡頭到飛機 4–10m，飛機偏離鏡頭注視方向 < 25°', () => {
+test('機尾後方（剛性跟隨）：每格位移 ≤ 飛機位移 + 0.05m、結束（撞地停住）後位移 = 0；方位與機頭正後方夾 15–20°', () => {
   for (const id of ['B2', 'B5a', 'B5', 'S2', 'S3']) for (const v of lesson(id).variants) {
-    const c = camTrace(id, v.key, 'rear');
-    assert.ok(c.minD >= 4 && c.maxD <= 10, `${id}/${v.key} 距離 ${c.minD.toFixed(1)}–${c.maxD.toFixed(1)}m`);
-    assert.ok(c.maxA < 25, `${id}/${v.key} 最大夾角 ${c.maxA.toFixed(1)}°`);
+    const L = lesson(id), r = runDemo(L, v), rec = r.rec.filter((_, i) => i % 4 === 0), h0 = startHeading(rec[0]);
+    let prev = null, prevP = null, st = null, worst = -1e9;
+    for (const x of rec) {
+      st = rearCam({ ...x, crashed: false }, h0, st, 1 / 60, L.rear);
+      if (prev) worst = Math.max(worst, V.len(V.sub(st.pos, prev)) - V.len(V.sub(x.p, prevP)));
+      prev = st.pos; prevP = x.p;
+    }
+    assert.ok(worst <= 0.05, `${id}/${v.key} 鏡頭位移比飛機多 ${worst.toFixed(3)}m`);
+    const last = rec.at(-1), frozen = []; // 結束後 1 秒：飛機停住（crashed）
+    for (let i = 0; i < 60; i++) { const s2 = rearCam({ ...last, v: [0, 0, 0], crashed: true }, h0, st, 1 / 60, L.rear); frozen.push(V.len(V.sub(s2.pos, st.pos))); st = s2; }
+    assert.ok(Math.max(...frozen) === 0, `${id}/${v.key} 結束後鏡頭還在動`);
+    const look = V.sub(st.look, st.pos); let d = (Math.atan2(look[1], look[0]) - h0) * 180 / Math.PI; d = ((d + 540) % 360) - 180;
+    assert.ok(Math.abs(d) >= 15 && Math.abs(d) <= 20, `${id}/${v.key} 方位偏角 ${d.toFixed(1)}°`);
+  }
+});
+
+test('機尾後方：桌機（16:10、62°）與手機（400×300、50°）飛機與所有箭頭端點都在畫面內、四邊邊距 ≥ 8%；手機機身投影寬度 ≥ 畫面寬 12%', async () => {
+  const { makeCam, rearCfg } = await import('../js/view.js'), { arrowTips } = await import('../js/forces.js');
+  for (const [name, W, H, fov] of [['桌機', 800, 500, 62], ['手機', 400, 300, 50]]) for (const id of ['B2', 'B5a', 'B5', 'S2', 'S3']) for (const v of lesson(id).variants) {
+    const L = lesson(id), rec = runDemo(L, v).rec.filter((_, i) => i % 4 === 0), h0 = startHeading(rec[0]); let margin = 1, bodyW = 1e9, st = null;
+    for (const x of rec) {
+      const sim = { p: x.p, v: x.v, R: x.R, st: { thr: x.thr }, crashed: false };
+      st = rearCam(sim, h0, st, 1 / 60, rearCfg(L.rear, W));
+      const cam = makeCam(st.pos, st.look, W, H, fov), pr = (q) => { const o = V.sub(q, cam.c), z = V.dot(o, cam.f); return [W / 2 + V.dot(o, cam.r) / z * cam.F, H / 2 - V.dot(o, cam.u) / z * cam.F, z]; };
+      for (const q of [...Object.values(arrowTips(sim, 1.3)), x.p]) { const [px, py] = pr(q); margin = Math.min(margin, px / W, 1 - px / W, py / H, 1 - py / H); }
+      const sc = W < 600 ? Math.max(1, Math.min(2.2, 880 / W)) : 1, z = V.dot(V.sub(x.p, cam.c), cam.f);
+      bodyW = Math.min(bodyW, cam.F * (2 * 0.34 * sc) / z / W);
+    }
+    assert.ok(margin >= 0.08, `${name} ${id}/${v.key} 最小邊距 ${(margin * 100).toFixed(1)}%`);
+    if (W < 600) assert.ok(bodyW >= 0.12, `${name} ${id}/${v.key} 機身寬 ${(bodyW * 100).toFixed(1)}%`);
   }
 });
 

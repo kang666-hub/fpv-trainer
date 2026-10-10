@@ -1,9 +1,11 @@
 // 3D 繪圖、搖桿、高度圖。只畫圖，不持有模擬狀態（狀態由 app.js 傳入）。
 import { HOVER, D2R, V, M } from './core.js';
-import { forces, thrForLevel } from './forces.js';
+import { forces, thrForLevel, arrowTips } from './forces.js';
 import { chaseCam, rearCam, startHeading } from './cams.js';
 
 let chase = null; // 追尾／跟隨鏡頭的平滑狀態
+// 機尾後方距離：桌機用 back，手機（寬 < 600px）用 backM（畫面窄，要拉遠才放得下所有箭頭）
+export const rearCfg = (cfg, W) => (cfg ? { ...cfg, back: W < 600 && cfg.backM ? cfg.backM : cfg.back } : undefined);
 let chaseSt = null, rearSt = null; // 追尾／機尾後方鏡頭的平滑狀態（cams.js 的 state）
 export function resetChase() { chase = null; chaseSt = null; rearSt = null; }
 
@@ -79,7 +81,7 @@ function fillPoly(ctx, cam, pts, fill, stroke, sw) {
   if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = sw || 1; ctx.stroke(); }
 }
 function drawBody(ctx, cam, sim, at0) {
-  const sc = Math.max(1, Math.min(2, 600 / cam.W)); // 手機寬度：飛機模型隨螢幕寬度放大
+  const sc = cam.W < 600 ? Math.max(1, Math.min(2.2, 880 / cam.W)) : 1; // 手機寬度：飛機模型隨螢幕寬度放大（400px 約 2.2 倍，機身寬 ≥ 畫面寬 12%）
   const at = (x, y, z) => at0(x * sc, y * sc, z * sc);
   const p = sim.p, zb = M.col(sim.R, 2), dist = Math.max(0.5, V.dot(V.sub(p, cam.c), cam.f));
   const px = 2 * BODY.A * sc * cam.F / dist;                         // 機體在螢幕上的寬度（像素）
@@ -120,17 +122,17 @@ function drawDrone(ctx, cam, sim, layers) {
   line(ctx, cam, p, V.add(p, V.mul(zb, 0.6)), 'rgba(255,214,170,0.5)', 2);
   // 力的箭頭：全部用 forces.js 的數字（單位 g），1g = 懸停推力的長度 L0
   const Fz = forces(sim), L0 = 1.3, small = cam.W < 600, lay = layers || { thrust: true, comps: true, net: true };
-  const at0 = (v) => V.add(p, V.mul(v, L0)), used = [];   // used：收集標籤，箭頭都畫完再統一放（合力優先）
+  const T = arrowTips(sim, L0), used = [];   // used：收集標籤，箭頭都畫完再統一放（合力優先）
   arrow(ctx, cam, p, V.add(p, [0, 0, -L0]), '#ffffff', 2);                                   // 重力 1g，往下
   if (lay.comps) {
-    const vt = at0(Fz.vertical), ht = at0(Fz.horizontal), tip = at0(Fz.thrust);
+    const vt = T.vertical, ht = T.horizontal, tip = T.thrust;
     poly(ctx, cam, [tip, vt], 'rgba(255,255,255,0.3)', 1, [3, 3]);
     poly(ctx, cam, [tip, ht], 'rgba(255,255,255,0.3)', 1, [3, 3]);
     if (Fz.verticalMag > 0.05) arrow(ctx, cam, p, vt, '#3fd0e0', 3, small ? '' : fmtG(Fz.verticalMag), '#3fd0e0', used, 2, Fz.verticalMag);
     if (Fz.horizontalMag > 0.05) arrow(ctx, cam, p, ht, '#b78cff', 3, small ? '' : fmtG(Fz.horizontalMag), '#b78cff', used, 2, Fz.horizontalMag);
   }
-  if (lay.thrust && Fz.thrustMag > 0.05) arrow(ctx, cam, p, at0(Fz.thrust), '#ff6a1f', 3, fmtG(Fz.thrustMag), '#ff9a5c', used, 1, Fz.thrustMag);
-  if (lay.net && Fz.netMag >= 0.05) arrow(ctx, cam, p, at0(Fz.net), '#ffd23f', 4, fmtG(Fz.netMag), '#ffd23f', used, 0, Fz.netMag);
+  if (lay.thrust && Fz.thrustMag > 0.05) arrow(ctx, cam, p, T.thrust, '#ff6a1f', 3, fmtG(Fz.thrustMag), '#ff9a5c', used, 1, Fz.thrustMag);
+  if (lay.net && Fz.netMag >= 0.05) arrow(ctx, cam, p, T.net, '#ffd23f', 4, fmtG(Fz.netMag), '#ffd23f', used, 0, Fz.netMag);
   flushLabels(ctx, cam, used, small);
 }
 const fmtG = (g) => g.toFixed(1) + 'g';
@@ -207,7 +209,7 @@ export function scene(ctx, cam, S, withDrone) {
 }
 // 旁觀鏡頭設定在各示範的 side 欄位（{follow:[...]} 跟隨 或 {pos, look} 固定）；自由練習只用追尾
 export function viewCam(W, H, sim, mode, side, rear, dt = 1 / 60) {
-  if (mode === 'rear' && rear) { rearSt = rearCam(sim, rear.heading, rearSt, dt, rear.cfg); return makeCam(rearSt.pos, rearSt.look, W, H, W < 600 ? 50 : 62); } // 機尾後方：位置跟著飛機、方向固定
+  if (mode === 'rear' && rear) { rearSt = rearCam(sim, rear.heading, rearSt, dt, rearCfg(rear.cfg, W)); return makeCam(rearSt.pos, rearSt.look, W, H, W < 600 ? 50 : 62); } // 機尾後方：位置跟著飛機、方向固定
   if (mode === 'chase') { chaseSt = chaseCam(sim, chaseSt, dt); return makeCam(chaseSt.c, chaseSt.look, W, H, W < 600 ? 50 : 62); }
   const s = side || { follow: [-3, -12, 5] };
   const fov = W < 600 ? 46 : 58;  // 手機寬度：鏡頭拉近，飛機在畫面上比較大
