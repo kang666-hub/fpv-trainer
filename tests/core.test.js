@@ -254,6 +254,14 @@ test('lessons.json：B2 有 8 個變體（4 飛法＋4 對照）、B3／B4 的�
   assert.ok(jsonLevels.findIndex((l) => l.id === 'B5a') === jsonLevels.findIndex((l) => l.id === 'B5') - 1);
 });
 
+test('預設視角：B2、B5a、B5、S2、S3 為機尾後方；B3、B4 維持追尾；機尾後方鏡頭在飛機後方、看向機頭方向', async () => {
+  for (const id of ['B2', 'B5a', 'B5', 'S2', 'S3']) assert.equal(lesson(id).cam, 'rear', id);
+  for (const id of ['B3', 'B4']) assert.equal(lesson(id).cam, 'chase', id);
+  const { rearCamFor } = await import('../js/view.js'), sim = new Sim(), L = lesson('B2'); L.start(sim, L.variants[0]);
+  const c = rearCamFor(sim, L.rear);
+  assert.ok(c.pos[0] < sim.p[0] - 5 && c.pos[2] > sim.p[2] && c.look[0] > sim.p[0], '鏡頭應在機尾後方、略高、看向前方');
+});
+
 test('A2 8 字：先轉一整圈（航向累計 ≥ 340°）再反向轉回（結束航向回到起點）且高度穩定', () => {
   const r = run('A2', 'eight'), z = zs(r);
   assert.ok(headingChange(r) >= 340, `航向累計 ${headingChange(r).toFixed(0)}°`);

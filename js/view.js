@@ -193,7 +193,8 @@ export function scene(ctx, cam, S, withDrone) {
   poles.filter((o) => o.z < dz).sort((a, b) => b.z - a.z).forEach((o) => drawPole(ctx, cam, o.pp));
 }
 // 旁觀鏡頭設定在各示範的 side 欄位（{follow:[...]} 跟隨 或 {pos, look} 固定）；自由練習只用追尾
-export function viewCam(W, H, sim, mode, side) {
+export function viewCam(W, H, sim, mode, side, rear) {
+  if (mode === 'rear' && rear) return makeCam(rear.pos, rear.look, W, H, W < 600 ? 46 : 58); // 機尾後方：鏡頭固定、不跟著轉
   if (mode === 'chase') {
     const v = [sim.v[0], sim.v[1], 0], sp = V.len(v); const xb = M.col(sim.R, 0);
     let h = sp > 1.5 ? V.norm(v) : V.norm([xb[0], xb[1], 0.0001]);
@@ -316,4 +317,12 @@ export function drawThrCurve(cv, pts, tx) {
     c.beginPath(); pts.forEach((q, i) => (i ? c.lineTo(X(q.tilt), Y(q.thr)) : c.moveTo(X(q.tilt), Y(q.thr)))); c.strokeStyle = 'rgba(255,106,31,0.6)'; c.lineWidth = 2; c.stroke();
     const e = pts[pts.length - 1]; c.beginPath(); c.arc(X(Math.min(90, e.tilt)), Y(e.thr), 4.5, 0, 7); c.fillStyle = '#ff6a1f'; c.fill(); c.strokeStyle = '#14100c'; c.lineWidth = 2; c.stroke();
   }
+}
+
+// 機尾後方鏡頭：示範開始時飛機後方 back 公尺、高 up 公尺，看向起始機頭方向（水平）；往前飛＝遠離觀看者
+export function rearCamFor(sim, cfg) {
+  const { back = 14, up = 3 } = cfg || {}, xb = M.col(sim.R, 0);
+  let h = [xb[0], xb[1], 0]; if (V.len(h) < 0.2) h = [1, 0, 0]; h = V.norm(h);
+  const p = sim.p;
+  return { pos: V.add(p, V.mul(h, -back), [0, 0, up]), look: V.add(p, V.mul(h, 20), [0, 0, up * 0.3]) };
 }
