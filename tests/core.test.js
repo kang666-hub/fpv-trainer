@@ -313,6 +313,14 @@ test('追尾：B5a 全部變體鏡頭水平方向每秒變化 ≤ 400°；B3、B
   for (const id of ['B3', 'B4']) for (const v of lesson(id).variants) { const c = camTrace(id, v.key, 'chase'); assert.ok(c.maxA < 30, `${id}/${v.key} 最大夾角 ${c.maxA.toFixed(1)}°`); }
 });
 
+test('起始高度參考面：起始高度 > 8m 的示範有 refPlane（含 S2、S3），其他沒有', () => {
+  for (const L of LESSONS) {
+    const sim = new Sim(); L.start(sim, L.variants[0], controlDefaults(L));
+    assert.equal(!!L.refPlane, sim.p[2] > 8, `${L.id} 起始高度 ${sim.p[2]} m，refPlane=${L.refPlane}`);
+  }
+  assert.equal(lesson('S2').refPlane, true); assert.equal(lesson('S3').refPlane, true);
+});
+
 test('A2 8 字：先轉一整圈（航向累計 ≥ 340°）再反向轉回（結束航向回到起點）且高度穩定', () => {
   const r = run('A2', 'eight'), z = zs(r);
   assert.ok(headingChange(r) >= 340, `航向累計 ${headingChange(r).toFixed(0)}°`);

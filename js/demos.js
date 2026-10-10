@@ -256,7 +256,7 @@ const B4 = {
 const B5_V = 6, B5_R = 3, B5_Z = 12;
 const B5_LEVEL = (t) => ({ p: [-B5_V + B5_V * t, 0, B5_Z], v: [B5_V, 0, 0], psi: 0, psid: 0 });
 const B5 = {
-  id: 'B5', dur: 7, cam: 'rear', rear: { back: 6, up: 2 }, side: { pos: [4, -21, 7.5], look: [4, 0, 7.5] }, fullTrail: true,
+  id: 'B5', dur: 7, refPlane: true, cam: 'rear', rear: { back: 6, up: 2 }, side: { pos: [4, -21, 7.5], look: [4, 0, 7.5] }, fullTrail: true,
   variants: [{ key: 'pull', pullUp: true }, { key: 'direct', pullUp: false }, { key: 'overthr', pullUp: false, over: true }],
   start: (sim) => startFromRef(sim, B5_LEVEL),
   ctrl: (v, sim, t, mem) => {
@@ -344,7 +344,7 @@ function b5aPulse(mem, key, target, dir) {
   return { stick: dir * st, done: target - a[key] < 1e-6 };
 }
 const B5a = {
-  id: 'B5a', dur: 7, cam: 'rear', rear: { back: 6, up: 2 }, side: { follow: [3, -12, 2] }, fullTrail: true,
+  id: 'B5a', dur: 7, refPlane: true, cam: 'rear', rear: { back: 6, up: 2 }, side: { follow: [3, -12, 2] }, fullTrail: true,
   variants: [{ key: 'rollR_pull', rollDir: 1, pitchDir: -1 }, { key: 'rollL_push', rollDir: -1, pitchDir: 1 }, { key: 'messy', rollDir: 1, pitchDir: -1, messy: true }],
   start: (sim) => { sim.reset([0, 0, B5A.z], [0, 0, 0], yawOnly(0)); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; },
   ctrl: (v, sim, t, mem) => {
@@ -479,7 +479,7 @@ const S1 = {
 
 // S2／S3 Pitch、Roll：桿量是「轉動速度」，放開就停在當下角度
 const sTilt = (id, axis, follow) => ({
-  id, dur: 4.5, cam: 'rear', rear: { back: 6, up: 2 }, side: { follow },
+  id, dur: 4.5, refPlane: true, cam: 'rear', rear: { back: 6, up: 2 }, side: { follow },
   variants: [{ key: 'a15', ang: 15, z0: 20 }, { key: 'a45', ang: 45, z0: 20 }, { key: 'hold', hold: true, z0: 45 }],
   start: (sim, v) => startAir(sim, (v && v.z0) || 20),
   ctrl: (v, sim, t, mem) => {
@@ -496,7 +496,7 @@ const S3 = sTilt('S3', 'roll', [-9, 0, 3]);
 
 // S4 Yaw：懸停中打 Yaw，機身原地轉，推力方向不變
 const S4 = {
-  id: 'S4', dur: 5, cam: 'side', side: { follow: [0, -8, 3] },
+  id: 'S4', dur: 5, refPlane: true, cam: 'side', side: { follow: [0, -8, 3] },
   variants: [{ key: 'yaw30', z0: 10 }],
   start: (sim, v) => startAir(sim, (v && v.z0) || 10),
   ctrl: (v, sim, t) => ({ thr: HOVER, roll: 0, pitch: 0, yaw: t >= 1 && t < 4 ? 0.3 : 0, phase: null }),
@@ -508,7 +508,7 @@ const S4 = {
 const S5_TURN = { T0: 1.0, R: 7, V: 7, z: 12, ang: Math.PI };
 const S5_FLAT = { ...B4_A, z: 12 };
 const S5 = {
-  id: 'S5', dur: 7, cam: 'chase', side: { follow: [-9, -6, 3] },
+  id: 'S5', dur: 7, refPlane: true, cam: 'chase', side: { follow: [-9, -6, 3] },
   variants: [{ key: 'pt', z0: 12 }, { key: 'rt', z0: 12 }, { key: 'rp' }, { key: 'py' }],
   start: (sim, v) => {
     const k = (v && v.key) || 'pt';
@@ -536,7 +536,7 @@ const S5 = {
 // endWhen(sim, t, v, ctl)：回傳 true 就提早結束這一輪（這裡是掉到 5m 以下）。readout 回傳即時讀數，plot 描述小圖（文字在 lessons.json 的 curve）。
 const S6_TILT_MAX = 80;
 const S6 = {
-  id: 'S6', dur: 6, cam: 'side', side: { follow: [3, -15, 1] },
+  id: 'S6', dur: 6, refPlane: true, cam: 'side', side: { follow: [3, -15, 1] },
   controls: [{ key: 'tilt', min: 0, max: S6_TILT_MAX, step: 1, default: 30 }],
   variants: [{ key: 'hold' }, { key: 'fixed' }],
   start: (sim) => { sim.reset([0, 0, 15], [0, 0, 0], yawOnly(0)); sim.st = { thr: HOVER, yaw: 0, pitch: 0, roll: 0 }; },

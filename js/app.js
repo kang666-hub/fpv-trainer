@@ -19,11 +19,12 @@ let stageEnds = [], stageProf = [], stageIdx = -1;
 let CLASS = LESSONS;                 // 教室課程順序（讀到 lessons.json 後依關卡順序排）
 let page = 'class';
 let freeView = 'fpv'; // 自由練習的大畫面：'fpv' | 'chase'，存在設定裡
-let forceLayers = { thrust: true, comps: true, net: true }; // 力的圖層開關，存在設定（forceLayers）
+let forceLayers = { thrust: true, comps: true, net: true, refPlane: true }; // 力的圖層開關，存在設定（forceLayers）
 let legendText = null;                // lessons.json 的 legend 文字
 let freeChannels = normChannels(null); // 自由練習的通道開關（true = 開），存在設定裡
 let ctl = {};                         // 示範滑桿（controls）目前的值
 let L = CLASS[0], vIdx = 0, t = 0, mem = {}, paused = false, speed = 1, crashT = 0, camMode = L.cam;
+let refPlane = null;                  // 起始高度參考面（起始高度 > 8m 的示範）
 let rearCam = null;                   // 機尾後方鏡頭的固定方向（restart 時記下示範開始的機頭方向）與距離設定
 let thrTrail = [];                    // 油門–傾角圖的軌跡（最近約 2 秒）
 let hist = [], trail = [], ghost = [], stats = { minz: 1e9, maxz: -1e9, z0: 0, crashed: false }, lastResult = '';
@@ -68,6 +69,7 @@ function buildLegend() {
     + tog('thrust', bar('var(--accent)'), t.thrust)
     + tog('comps', bar('var(--cyan)') + bar('var(--violet)'), t.comps)
     + tog('net', bar('#ffd23f'), t.net, t.netNote)
+    + (L.refPlane && t.refPlane ? tog('refPlane', bar('rgba(120,200,255,.6)'), t.refPlane) : '')
     + `<span>${bar('#fff')}${esc(t.gravity)}</span></div>`;
   el.querySelector('.lg-toggle').onclick = () => { legendOpen = !legendOpen; buildLegend(); };
   el.querySelectorAll('.lg-body button').forEach((b) => {
@@ -146,7 +148,7 @@ function updateInteract() {
 }
 function selectLesson(l) {
   L = l; vIdx = 0; lastResult = ''; ctl = controlDefaults(l);
-  camMode = L.cam; buildTabs(); buildVariants(); buildNotes(); buildCam(); buildControls(); restart();
+  camMode = L.cam; buildTabs(); buildVariants(); buildNotes(); buildCam(); buildControls(); buildLegend(); restart();
 }
 function restart() {
   t = 0; mem = {}; crashT = 0; hist = []; trail = []; thrTrail = []; resetChase();
@@ -156,6 +158,7 @@ function restart() {
     sim.reset(fs.p, [0, 0, 0], yawOnly(0)); sim.st = { thr: fs.thr, yaw: 0, pitch: 0, roll: 0 }; freeIn.thr = fs.thr;
   } else { sim.groundHold = false; sim.rateScale = 1; lessonStart(L, sim, L.variants[vIdx], ctl); }
   rearCam = L.free ? null : { heading: startHeading(sim), cfg: L.rear };
+  refPlane = !L.free && L.refPlane ? { x: sim.p[0], y: sim.p[1], z: sim.p[2] } : null;
   stats = { minz: sim.p[2], maxz: sim.p[2], z0: sim.p[2], crashed: false };
   ghost = L.free ? [] : L.ghost(L.variants[vIdx]);
   $('banner').hidden = true;
@@ -422,7 +425,7 @@ function frame(now) {
         if (sl.length > 90) { sl.shift(); sr.shift(); }
       }
     }
-    const S = { sim, poles: L.poles, ghost, trail, layers: forceLayers, marks: L.overlay ? L.overlay(L.variants[vIdx], sim, t, mem) : null };
+    const S = { sim, poles: L.poles, ghost, trail, layers: forceLayers, refPlane: forceLayers.refPlane ? refPlane : null, marks: L.overlay ? L.overlay(L.variants[vIdx], sim, t, mem) : null };
     const fpvMain = L.free && freeView === 'fpv'; // 自由練習預設 FPV 為大畫面，小畫面放第三人稱
     const mode = L.free ? 'chase' : camMode;
     const drawChase = (cv, ratio) => { const c = sizeCanvas(cv, ratio); scene(c.ctx, viewCam(c.W, c.H, sim, mode, L.side, rearCam, real), S, true); };
@@ -604,7 +607,7 @@ async function init() {
   settings = await store.loadSettings();
   freeView = settings.freeView === 'chase' ? 'chase' : 'fpv';
   freeChannels = normChannels(settings.freeChannels); buildChSwitch();
-  forceLayers = { thrust: settings.forceLayers?.thrust !== false, comps: settings.forceLayers?.comps !== false, net: settings.forceLayers?.net !== false }; buildLegend();
+  forceLayers = { thrust: settings.forceLayers?.thrust !== false, comps: settings.forceLayers?.comps !== false, net: settings.forceLayers?.net !== false, refPlane: settings.forceLayers?.refPlane !== false }; buildLegend();
   updateGpSliders(); updateGpUi();
   buildSpeed(); selectLesson(CLASS[0]);
   requestAnimationFrame(frame);

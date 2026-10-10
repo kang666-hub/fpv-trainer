@@ -162,6 +162,16 @@ function flushLabels(ctx, cam, labels, small) {
   ctx.restore();
 }
 // 示範的參照物：水平虛線（進場／改出高度）、兩線之間的 Δh、同高的參照塔。座標都在 y=0 的飛行面上
+// 起始高度參考面：約 20m × 20m、以起始位置為中心、固定在起始高度的半透明網格（比地面網格淡）。飛機慢慢下沉時看得到它離開這片網格
+function drawRefPlane(ctx, cam, pl) {
+  const H = 10, S = 2; ctx.lineWidth = 1;
+  for (let k = -H; k <= H; k += S) {
+    for (const [a, b] of [[[pl.x + k, pl.y - H, pl.z], [pl.x + k, pl.y + H, pl.z]], [[pl.x - H, pl.y + k, pl.z], [pl.x + H, pl.y + k, pl.z]]]) {
+      ctx.beginPath(); if (seg(ctx, cam, a, b)) { ctx.strokeStyle = k === 0 ? 'rgba(120,200,255,0.30)' : 'rgba(120,200,255,0.16)'; ctx.stroke(); }
+    }
+  }
+  poly(ctx, cam, [[pl.x - H, pl.y - H, pl.z], [pl.x + H, pl.y - H, pl.z], [pl.x + H, pl.y + H, pl.z], [pl.x - H, pl.y + H, pl.z], [pl.x - H, pl.y - H, pl.z]], 'rgba(120,200,255,0.35)', 1.2);
+}
 function drawMarks(ctx, cam, M) {
   const fs = Math.max(11, Math.min(14, cam.W / 48));
   ctx.save(); ctx.font = `600 ${fs}px "JetBrains Mono",ui-monospace,monospace`; ctx.textBaseline = 'middle';
@@ -190,6 +200,7 @@ export function scene(ctx, cam, S, withDrone) {
   poles.filter((o) => o.z >= dz).sort((a, b) => b.z - a.z).forEach((o) => drawPole(ctx, cam, o.pp));
   if (S.ghost.length) poly(ctx, cam, S.ghost, 'rgba(255,255,255,0.4)', 1.5, [6, 6]);
   if (S.trail.length > 1) poly(ctx, cam, S.trail, 'rgba(255,106,31,0.55)', 2);
+  if (S.refPlane) drawRefPlane(ctx, cam, S.refPlane);
   if (S.marks) drawMarks(ctx, cam, S.marks);
   if (withDrone) drawDrone(ctx, cam, sim, S.layers);
   poles.filter((o) => o.z < dz).sort((a, b) => b.z - a.z).forEach((o) => drawPole(ctx, cam, o.pp));
