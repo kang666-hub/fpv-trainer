@@ -38,3 +38,9 @@ export function curveSide(tiltDeg, thr) {
   const d = thr - need.thr;
   return d > 0.02 ? 'up' : d < -0.02 ? 'down' : 'level';
 }
+
+// 畫面上每個力的箭頭端點（世界座標）：1g = scale 公尺（view.js 畫箭頭用的 L0）。推力、垂直分力、水平分力、合力、重力五個
+export function arrowTips(sim, scale = 1.3) {
+  const f = forces(sim), p = sim.p, at = (v) => V.add(p, V.mul(v, scale));
+  return { thrust: at(f.thrust), vertical: at(f.vertical), horizontal: at(f.horizontal), net: at(f.net), gravity: at(f.gravity) };
+}

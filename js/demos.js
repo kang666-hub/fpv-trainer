@@ -262,7 +262,7 @@ const B5 = {
   ctrl: (v, sim, t, mem) => {
     const m = (mem.marks = mem.marks || {});
     if (!m.p1) m.p1 = 1.0;
-    if (t < m.p1) return { ...track(sim, B5_LEVEL(t)), phase: null };
+    if (t < m.p1) { mem.pitch0 = euler(sim.R).pitch; return { ...track(sim, B5_LEVEL(t)), phase: null }; } // pitch0：進場時的機身前傾角，改出要回到它
     if (v.pullUp && !m.p2) { // 微拉高：小爬升，帶著一點向上速度進半滾
       if (!mem.pu) mem.pu = t;
       const tau = t - mem.pu;
@@ -296,14 +296,19 @@ const B5 = {
         phase: null,
       };
       if (v.over && tau > 0.4 * Tl) out.thr = 1; // 對照：拉到中段就猛推油門
+      mem.last = { thr: out.thr, roll: out.roll, pitch: out.pitch };
       return out;
     }
     if (!m.p4) m.p4 = t;
-    if (v.over) { // 對照：改出時油門太大
-      const lv = levelSticks(sim);
-      return { thr: 1, roll: lv.roll, pitch: lv.pitch, yaw: 0, phase: null };
-    }
-    return { ...track(sim, { p: [x0 - B5_V * (tau - Tl), 0, z0 - 2 * Rr], v: [-B5_V, 0, 0], psi: Math.PI, xh: [-1, 0, 0] }), phase: null };
+    // 改出：不再切去追路線（不修橫向位置與航向）。Pitch 把機身帶回進場時的姿態、Roll 只修回 0°、Yaw 0、油門回到維持高度所需；
+    // 桿量從半圓最後一格的值開始平滑變化（每 0.1 秒 ≤ 20%），不會在切換那一格跳。對照 over 只保留「油門推太大」這個錯誤。
+    const e = euler(sim.R), step = 2.0 * DT, slew = (cur, goal) => cur + clamp(goal - cur, -step, step);
+    const ex = (mem.ex = mem.ex || { ...(mem.last || { thr: HOVER, roll: 0, pitch: 0 }) });
+    const goalThr = v.over ? 1 : clamp(HOVER / Math.max(0.3, sim.R[8]) - 0.12 * sim.v[2], 0, 1);
+    ex.thr = slew(ex.thr, goalThr);
+    ex.roll = slew(ex.roll, clamp(-e.roll * 8 / 500, -1, 1));
+    ex.pitch = slew(ex.pitch, clamp(((mem.pitch0 ?? 0) - e.pitch) * 8 / 500, -1, 1));
+    return { thr: ex.thr, roll: ex.roll, pitch: ex.pitch, yaw: 0, phase: null };
   },
   // 預期路徑（飛法版）：半滾點之後的半圓＋改出直線。對照版不畫
   ghost: (v) => {

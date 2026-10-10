@@ -215,6 +215,21 @@ test('B5：飛法改出後 1 秒高度 ≤ 進場且 |垂直速度| < 0.5；對�
   }
 });
 
+test('B5 改出：不抖——|Roll 桿量| < 10%、|Yaw 桿量| < 5%、|機身 Roll 角| < 5°、航向變化 < 3°；每 0.1 秒桿量變化 ≤ 20%', () => {
+  for (const v of lesson('B5').variants) {
+    const r = runDemo(lesson('B5'), v), seg = r.rec.filter((x) => x.t >= r.mem.marks.p4), e0 = euler(seg[0].R).yaw;
+    assert.ok(Math.max(...seg.map((x) => Math.abs(x.roll))) < 0.10, `${v.key} Roll 桿量 ${Math.max(...seg.map((x) => Math.abs(x.roll)))}`);
+    assert.ok(Math.max(...seg.map((x) => Math.abs(x.yaw))) < 0.05, `${v.key} Yaw 桿量`);
+    assert.ok(Math.max(...seg.map((x) => Math.abs(euler(x.R).roll))) < 5, `${v.key} 機身 Roll 角`);
+    const dh = Math.max(...seg.map((x) => Math.abs((((euler(x.R).yaw - e0) + 540) % 360) - 180)));
+    assert.ok(dh < 3, `${v.key} 航向變化 ${dh.toFixed(1)}°`);
+    for (let i = 0; i + 24 < seg.length; i++) {
+      const a = seg[i], b = seg[i + 24];
+      for (const ch of ['roll', 'pitch', 'thr']) assert.ok(Math.abs(b[ch] - a[ch]) <= 0.2 + 1e-6, `${v.key} ${ch} 0.1 秒變化 ${Math.abs(b[ch] - a[ch]).toFixed(3)}`);
+    }
+  }
+});
+
 test('B5 拉桿穿過下半圈：Pitch 為主（平均 |Pitch| > 10%，|Roll|、|Yaw| < 5%），半滾收在 180° ± 2°', () => {
   for (const v of lesson('B5').variants) {
     const r = runDemo(lesson('B5'), v), prof = stageProfile(lesson('B5'), v, r);
