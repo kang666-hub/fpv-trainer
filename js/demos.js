@@ -485,8 +485,9 @@ const sTilt = (id, axis, follow) => ({
   ghost: () => [],
   stages: (v) => (v.hold ? [1, 2, 4.5] : [1, 1.6, 4.5]),
 });
-const S2 = sTilt('S2', 'pitch', [3, -11, 2]);
-const S3 = sTilt('S3', 'roll', [-11, -3, 2]);
+// 單桿示範從機尾後方看（略高、看向前方，往前飛＝遠離觀看者）：Pitch 和 Roll 不會看起來像同一個方向
+const S2 = sTilt('S2', 'pitch', [-9, 0, 3]);
+const S3 = sTilt('S3', 'roll', [-9, 0, 3]);
 
 // S4 Yaw：懸停中打 Yaw，機身原地轉，推力方向不變
 const S4 = {
