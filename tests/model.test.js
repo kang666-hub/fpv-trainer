@@ -43,7 +43,7 @@ test('visibleTris：背面剔除、深度由遠到近、朝上的面較亮；倒
   const cam = camAt([-6, 0, 3], [0, 0, 0]);
   const v = visibleTris(m, [0, 0, 0], I, cam);
   assert.ok(v.count > 0 && v.count < m.n * 0.75, `可見 ${v.count} / ${m.n}`);
-  for (let k = 1; k < v.order.length; k++) assert.ok(v.depth[v.order[k - 1]] >= v.depth[v.order[k]]);
+  for (let k = 1; k < v.order.length; k++) assert.ok(v.depth[v.order[k - 1]] >= v.depth[v.order[k]] - 1 / 4096);
   // 從正上方看：所有可見面法線朝上；倒置（繞 x 軸 180°）後看到的是機腹，法線朝下（機身座標）
   const top = camAt([0.001, 0, 6], [0, 0, 0]);
   const up = visibleTris(m, [0, 0, 0], I, top);

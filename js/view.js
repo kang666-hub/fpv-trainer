@@ -85,7 +85,7 @@ function poly(ctx, cam, pts, color, w, dash) {
 const BODY = { A: 0.34, PR: 0.17 };
 // kodo 機架模型：第一次畫機身時才載入；載入中或失敗都退回舊的線框畫法（不丟錯）
 let MODEL = null, modelState = 'idle';
-export const modelStats = { calls: 0, ms: 0 };
+export const modelStats = { calls: 0, ms: 0, seam: true };
 function ensureModel() {
   if (modelState !== 'idle' || typeof fetch !== 'function' || typeof location === 'undefined') return;
   modelState = 'loading';
@@ -96,13 +96,18 @@ function ensureModel() {
 function drawModel(ctx, cam, sim, at, sc, top) {
   const m = MODEL, t0 = performance.now(), R = sim.R;
   const vt = visibleTris(m, sim.p, R, cam, sc);
-  const { order, sx, shade, tri } = vt;
+  const { order, sx, shade, tri } = vt, seam = modelStats.seam;
+  if (!m.pal) m.pal = m.colors.map((c) => Array.from({ length: 16 }, (_, k) => { const b = 0.35 + 0.65 * k / 15; return `rgb(${(c[0] * b) | 0},${(c[1] * b) | 0},${(c[2] * b) | 0})`; }));
   ctx.lineJoin = 'round'; ctx.lineWidth = 0.8;
+  let last = null;
   for (let k = 0; k < order.length; k++) {
-    const i = order[k], c = m.colors[m.cid[tri[i]]], b = 0.35 + 0.65 * shade[i] / 15, o = i * 6;
-    const col = `rgb(${(c[0] * b) | 0},${(c[1] * b) | 0},${(c[2] * b) | 0})`;
-    ctx.beginPath(); ctx.moveTo(sx[o], sx[o + 1]); ctx.lineTo(sx[o + 2], sx[o + 3]); ctx.lineTo(sx[o + 4], sx[o + 5]); ctx.closePath();
-    ctx.fillStyle = col; ctx.strokeStyle = col; ctx.fill(); ctx.stroke();
+    const i = order[k], o = i * 6, x0 = sx[o], y0 = sx[o + 1], x1 = sx[o + 2], y1 = sx[o + 3], x2 = sx[o + 4], y2 = sx[o + 5];
+    if (Math.abs((x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)) < 1.2) continue;   // 小於約 0.6 px² 的三角形不畫（遠處簡化）
+    const col = m.pal[m.cid[tri[i]]][shade[i]];
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineTo(x2, y2); ctx.closePath();
+    if (col !== last) { ctx.fillStyle = col; ctx.strokeStyle = col; last = col; }
+    ctx.fill();
+    if (seam) ctx.stroke();
   }
   // 槳：半透明槳盤＋ 3 片旋轉槳葉（對角同向、相鄰反向），前槳橘、後槳灰
   const spin = performance.now() / 1000 * (6 + 50 * sim.st.thr), alpha = 0.10 + 0.20 * sim.st.thr, nb = m.blades;

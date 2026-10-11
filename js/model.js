@@ -34,7 +34,7 @@ export function parseModel(json, targetDiag) {
     pads: pads.map((p) => p.map((x) => x * scale)), propR: json.propRadius * scale, blades: json.propBlades || 3,
     cam: { pos: json.fpvCam.pos.map((x) => x * scale), tilt: json.fpvCam.uptiltDeg },
     // 繪製用暫存（避免每格配置記憶體）
-    _sx: new Float32Array(n * 6), _depth: new Float32Array(n), _vis: new Uint32Array(n), _key: new Float64Array(n),
+    _sx: new Float32Array(n * 6), _depth: new Float32Array(n), _vis: new Uint32Array(n), _key: new Float64Array(n), _pack: new Float64Array(n), _order: new Uint32Array(n),
   };
 }
 
@@ -76,6 +76,10 @@ export function visibleTris(m, p, R, cam, sc = 1, light = [0.28, -0.35, 0.89]) {
     vis[count] = t; dep[count] = dsum / 3; key[count] = Math.max(0, Math.min(15, Math.round((0.45 + 0.55 * l) * 15)));
     count++;
   }
-  const order = Array.from({ length: count }, (_, i) => i).sort((a, b) => dep[b] - dep[a]);
-  return { count, order, sx, tri: vis, shade: key, depth: dep };
+  // 由遠到近：把深度量化後和索引打包成一個數字，用 TypedArray 原生排序（比帶比較函式的 sort 快）
+  const pk = m._pack.subarray(0, count);
+  for (let i = 0; i < count; i++) pk[i] = Math.floor((1000 - Math.min(999, dep[i])) * 4096) * 8192 + i;
+  pk.sort();
+  const order = m._order; for (let i = 0; i < count; i++) order[i] = pk[i] % 8192;
+  return { count, order: m._order.subarray(0, count), sx, tri: vis, shade: key, depth: dep };
 }

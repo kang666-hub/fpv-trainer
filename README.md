@@ -16,6 +16,10 @@ python3 -m http.server 8000
 - 加新動作（Power Loop、Matty Flip…）：在 `js/demos.js` 的 `LESSONS` 加一筆（`id`、`dur`、`variants`、`start`、`ctrl`、`stages`），再到 `lessons.json` 加對應關卡；其他程式不用改
 - 舊版進度（v1）第一次讀到時自動轉成 v2，原文備份在 `fpv-trainer-progress-v1-backup`；舊匯出檔也能匯入
 
+## 飛機模型（v3.9）
+- `assets/models/kodo_lowpoly.json`：kodo 五吋機架低多邊形模型（2,376 個三角面，mm，x 機頭前、y 左、z 上）。`js/model.js`（純函式）負責 `parseModel`（換成公尺、縮放到對角軸距 = `BODY` 對角軸距）、`visibleTris`（背面剔除、平面著色、由遠到近排序）。
+- `view.js` 的 `drawBody` 第一次畫機身時才 fetch 模型；載入中、載入失敗、或螢幕上機身太小（< 26 px）時退回舊的十字機臂畫法。槳葉（3 片）即時繪製。
+
 ## 力的圖層與 forces.js（v3.0）
 - `js/forces.js`（純函式，無 DOM，Node 可測）：`forces(sim)` 以「重力倍數 g」回傳推力、垂直／水平分量、重力（固定 [0,0,-1]）與合力（推力＋重力，**不含阻力**）及各自大小；`thrForLevel(傾角°)` 回傳維持高度需要的油門 = 懸停 ÷ cosθ，`{ thr, ok }`，`thr > 1` 時 `ok=false`（66.4° 時剛好 100%）。`view.js` 畫箭頭只用這裡的數字，不另外算。
 - 教室舞台下方的圖例是三個可點的圖層開關：主力（推力）、分力（垂直／水平）、合力。狀態存在設定（`fpv-trainer-settings-v1`）的 `forceLayers` 欄位：`{ thrust, comps, net }`（布林，預設全開）。圖例文字在 `lessons.json` 的 `legend`。
