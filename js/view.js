@@ -311,11 +311,11 @@ export function drawThrCurve(cv, pts, tx) {
   if (!W) return;
   if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
   const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W, H);
-  const pl = 34, pr = 8, pt = 8, pb = 24, X = (a) => pl + a / 90 * (W - pl - pr), Y = (v) => pt + (1 - v) * (H - pt - pb);
-  const cross = Math.acos(HOVER) / D2R, curve = (a) => Math.min(1, thrForLevel(a).thr);
+  const pl = 34, pr = 8, pt = 8, pb = 24, XM = 110, X = (a) => pl + a / XM * (W - pl - pr), Y = (v) => pt + (1 - v) * (H - pt - pb);
+  const cross = Math.acos(HOVER) / D2R, curve = (a) => (a >= 90 ? 1 : Math.min(1, thrForLevel(a).thr));
   // 曲線上方（往上）、下方（往下）的淡色區
-  c.beginPath(); c.moveTo(X(0), Y(1)); for (let a = 0; a <= 90; a += 1) c.lineTo(X(a), Y(curve(a))); c.lineTo(X(90), Y(1)); c.closePath(); c.fillStyle = 'rgba(255,210,63,0.08)'; c.fill();
-  c.beginPath(); c.moveTo(X(0), Y(0)); for (let a = 0; a <= 90; a += 1) c.lineTo(X(a), Y(curve(a))); c.lineTo(X(90), Y(0)); c.closePath(); c.fillStyle = 'rgba(63,208,224,0.08)'; c.fill();
+  c.beginPath(); c.moveTo(X(0), Y(1)); for (let a = 0; a <= XM; a += 1) c.lineTo(X(a), Y(curve(a))); c.lineTo(X(XM), Y(1)); c.closePath(); c.fillStyle = 'rgba(255,210,63,0.08)'; c.fill();
+  c.beginPath(); c.moveTo(X(0), Y(0)); for (let a = 0; a <= XM; a += 1) c.lineTo(X(a), Y(curve(a))); c.lineTo(X(XM), Y(0)); c.closePath(); c.fillStyle = 'rgba(63,208,224,0.08)'; c.fill();
   c.font = '10px "JetBrains Mono",monospace'; c.fillStyle = '#8d949e'; c.strokeStyle = '#2a2f37'; c.lineWidth = 1; c.textAlign = 'right';
   for (const v of [0, 0.5, 1]) { c.beginPath(); c.moveTo(pl, Y(v)); c.lineTo(W - pr, Y(v)); c.stroke(); c.fillText(Math.round(v * 100) + '%', pl - 4, Y(v) + 3); }
   c.textAlign = 'center'; for (const a of [0, 30, 60, 90]) c.fillText(a + '°', X(a), H - pb + 12);
@@ -324,11 +324,11 @@ export function drawThrCurve(cv, pts, tx) {
   c.fillStyle = '#fff'; c.textAlign = 'right'; c.fillText(tx.limit || '', X(cross) - 3, Y(0) - 4 - 12);
   c.fillStyle = 'rgba(255,210,63,0.9)'; c.textAlign = 'left'; c.fillText(tx.up || '', pl + 4, Y(1) + 11);
   c.fillStyle = 'rgba(63,208,224,0.9)'; c.fillText(tx.down || '', pl + 4, Y(0) - 4);
-  c.beginPath(); for (let a = 0; a <= 90; a += 1) (a ? c.lineTo(X(a), Y(curve(a))) : c.moveTo(X(a), Y(curve(a)))); c.strokeStyle = '#3fd0e0'; c.lineWidth = 2; c.stroke();
+  c.beginPath(); for (let a = 0; a <= XM; a += 1) (a ? c.lineTo(X(a), Y(curve(a))) : c.moveTo(X(a), Y(curve(a)))); c.strokeStyle = '#3fd0e0'; c.lineWidth = 2; c.stroke();
   c.fillStyle = '#3fd0e0'; c.textAlign = 'left'; c.fillText(tx.level || '', X(4), Y(curve(4)) - 6);
   if (pts.length) {
     c.beginPath(); pts.forEach((q, i) => (i ? c.lineTo(X(q.tilt), Y(q.thr)) : c.moveTo(X(q.tilt), Y(q.thr)))); c.strokeStyle = 'rgba(255,106,31,0.6)'; c.lineWidth = 2; c.stroke();
-    const e = pts[pts.length - 1]; c.beginPath(); c.arc(X(Math.min(90, e.tilt)), Y(e.thr), 4.5, 0, 7); c.fillStyle = '#ff6a1f'; c.fill(); c.strokeStyle = '#14100c'; c.lineWidth = 2; c.stroke();
+    const e = pts[pts.length - 1]; c.beginPath(); c.arc(X(Math.min(XM, e.tilt)), Y(e.thr), 4.5, 0, 7); c.fillStyle = '#ff6a1f'; c.fill(); c.strokeStyle = '#14100c'; c.lineWidth = 2; c.stroke();
   }
 }
 

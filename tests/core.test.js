@@ -109,9 +109,9 @@ function sideShare(r, t0, t1, want) {
   return { n, total: seg.length, share: n / seg.length };
 }
 
-test('B2 油門–傾角圖：dive 前傾段 ≥ 80% 在曲線上（level）；slam 開始後 0.3 秒內有 up；balloon 回平後 1 秒 ≥ 80% 是 up', () => {
+test('B2 油門–傾角圖：dive 前傾段 ≥ 65% 在曲線上（level；超過 66.4° 的部分是 down 屬預期）；slam 開始後 0.3 秒內有 up；balloon 回平後 1 秒 ≥ 80% 是 up', () => {
   const d = b2Metrics('dive'), lv = sideShare(d.r, d.tStart, d.tPeak, 'level');
-  assert.ok(lv.share >= 0.8, `dive 前傾段 level 只有 ${(lv.share * 100).toFixed(0)}%`);
+  assert.ok(lv.share >= 0.65, `dive 前傾段 level 只有 ${(lv.share * 100).toFixed(0)}%`);
   const s = run('B2', 'slam'), up = s.rec.filter((x) => x.t >= 1.0 && x.t <= 1.3).some((x) => curveSide(tiltOf2(x), x.thr) === 'up');
   assert.ok(up, 'slam 開始後 0.3 秒內沒有 up');
   const b = b2Metrics('balloon'), bu = sideShare(b.r, b.tFlat, b.tFlat + 1, 'up');

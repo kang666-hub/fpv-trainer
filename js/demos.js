@@ -92,13 +92,13 @@ const B1 = {
 const B2_T = { hover: 1.0, ramp: 1.3, accEnd: 2.3, recEnd: 2.7 };
 // 直播示範實測：前傾慢（約 0.5 秒、桿量由小漸大）、最低點不停頓、拉回快（約 0.3 秒、桿量較大），
 // 油門和前傾同時開始、沿「懸停 ÷ cos(傾角)」上升，傾角最大那一刻剛好到頂；拉回前段仍滿油，傾角回到 release 以下才收，機身回平時已在懸停附近。
-const B2_D = { t0: 1.0, z: 4, v0: 6, x0: -25, tilt: 72, rise: 0.55, pause: 0.03, back: 0.3, release: 28, dip: 0.06, dipT: 0.45, wideLead: 0.2, coupledExtra: 20, balloonThr: HOVER + 0.25 };
+const B2_D = { t0: 1.0, z: 4, v0: 6, x0: -25, tilt: 85, rise: 0.55, pause: 0.03, back: 0.3, release: 28, dip: 0.06, dipT: 0.45, wideLead: 0.2, coupledExtra: 11, balloonThr: HOVER + 0.25 };
 const B2_DIVE_REF = (t, z = B2_D.z) => ({ p: [B2_D.x0 + B2_D.v0 * t, 0, z], v: [B2_D.v0, 0, 0], psi: 0, psid: 0 });
 // 前傾角度指令：從 θi 慢慢壓到 θmax（速度由慢漸快，對應桿量由小漸大）→ 停頓 pause → 快速拉回水平（等速）
 function b2Angle(t, th0, thMax) {
   const D = B2_D, u = (t - D.t0) / D.rise;
   if (t < D.t0) return { th: th0, rate: 0 };
-  if (u < 1) { const a = 0.25, b = 0.15, k = a + b / 2, g = (a * u + b * u * u / 2) / k; return { th: th0 + (thMax - th0) * g, rate: (thMax - th0) * (a + b * u) / k / D.rise }; }
+  if (u < 1) { const a = 0.1, b = 0.4, k = a + b / 2, g = (a * u + b * u * u / 2) / k; return { th: th0 + (thMax - th0) * g, rate: (thMax - th0) * (a + b * u) / k / D.rise }; }
   const tp = D.t0 + D.rise + D.pause, w = (t - tp) / D.back;
   if (t < tp) return { th: thMax, rate: 0 };
   if (w < 1) return { th: thMax * (1 - w), rate: -thMax / D.back };
@@ -106,9 +106,9 @@ function b2Angle(t, th0, thMax) {
 }
 function diveCtrl(v, sim, t, mem) {
   const D = B2_D, m = (mem.marks = mem.marks || {}), e = euler(sim.R), lv = { roll: clamp(-e.roll * 8 / 500, -1, 1), yaw: 0, phase: null };
-  if (t < D.t0) { m.th0 = e.pitch; return { ...track(sim, B2_DIVE_REF(t, v.z0 ?? D.z)), phase: null }; }  // ① 懸停（帶一點前進速度）
+  if (t < D.t0) { m.th0 = Math.atan2(sim.R[2], sim.R[8]) / D2R; return { ...track(sim, B2_DIVE_REF(t, v.z0 ?? D.z)), phase: null }; }  // ① 懸停（帶一點前進速度）
   const thMax = D.tilt + (v.mode === 'coupled' ? D.coupledExtra : 0), tMax = D.t0 + D.rise;
-  const cmd = b2Angle(t, m.th0 ?? 0, thMax), pitch = clamp((cmd.rate + 14 * (cmd.th - e.pitch)) / 500, -1, 1); // 角度指令的前饋角速度（°/s）÷ 滿桿 500°/s ＋ 誤差回饋
+  const fwd = Math.atan2(sim.R[2], sim.R[8]) / D2R, cmd = b2Angle(t, m.th0 ?? 0, thMax), pitch = clamp((cmd.rate + 14 * (cmd.th - fwd)) / 500, -1, 1); // 前傾角用推力方向算（Euler pitch 超過 90° 會翻轉） // 角度指令的前饋角速度（°/s）÷ 滿桿 500°/s ＋ 誤差回饋
   const tilt = Math.acos(clamp(sim.R[8], -1, 1)) / D2R, need = clamp(thrForLevel(tilt).thr, 0, 1);
   if (!m.tMax && t >= tMax) m.tMax = tMax;
   if (m.tMax && !m.release && tilt <= D.release && t > tMax + D.pause) m.release = t;      // 傾角回到 release 以下才收油
