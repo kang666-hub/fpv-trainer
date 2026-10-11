@@ -2,7 +2,7 @@
 import { HOVER, D2R, V, M } from './core.js';
 import { forces, thrForLevel, arrowTips } from './forces.js';
 import { chaseCam, rearCam, startHeading } from './cams.js';
-import { parseModel, visibleTris } from './model.js';
+import { parseModel, visibleTris, lodSelect } from './model.js';
 
 let chase = null; // 追尾／跟隨鏡頭的平滑狀態
 // 機尾後方距離：桌機用 back，手機（寬 < 600px）用 backM（畫面窄，要拉遠才放得下所有箭頭）
@@ -83,25 +83,59 @@ function poly(ctx, cam, pts, color, w, dash) {
 }
 // ===== 飛機模型：機身板、四支機臂、四個槳盤、機頭鏡頭。頂面亮、底面暗（看到哪一面就畫哪一種顏色），倒飛一眼可辨 =====
 const BODY = { A: 0.34, PR: 0.17 };
-// kodo 機架模型：第一次畫機身時才載入；載入中或失敗都退回舊的線框畫法（不丟錯）
-let MODEL = null, modelState = 'idle';
-export const modelStats = { calls: 0, ms: 0, seam: true };
-function ensureModel() {
-  if (modelState !== 'idle' || typeof fetch !== 'function' || typeof location === 'undefined') return;
-  modelState = 'loading';
-  fetch(new URL('../assets/models/kodo_lowpoly.json', import.meta.url)).then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-    .then((j) => { MODEL = parseModel(j, 2 * Math.SQRT2 * BODY.A); modelState = 'ready'; })
-    .catch(() => { modelState = 'failed'; });
+// kodo 機架模型：低多邊形（lowpoly）與精緻版（v2）各自第一次需要時才載入；載入中或失敗都退回舊畫法（不丟錯）
+const MODELS = { low: { file: 'kodo_lowpoly.json', state: 'idle', m: null }, hi: { file: 'kodo_v2.json', state: 'idle', m: null } };
+let lodPrev = 'low';
+export const modelStats = { calls: 0, ms: 0, seam: true, lod: 'low', force: null };
+function ensureModel(k) {
+  const e = MODELS[k];
+  if (e.state !== 'idle' || typeof fetch !== 'function' || typeof location === 'undefined') return;
+  e.state = 'loading';
+  fetch(new URL('../assets/models/' + e.file, import.meta.url)).then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((j) => { e.m = parseModel(j, 2 * Math.SQRT2 * BODY.A); e.state = 'ready'; })
+    .catch(() => { e.state = 'failed'; });
 }
-function drawModel(ctx, cam, sim, at, sc, top) {
-  const m = MODEL, t0 = performance.now(), R = sim.R;
+// 槳葉多邊形：沿 +x 的外形，反轉的槳 y 取負；每片槳葉加上相位 a，回傳在機身座標（含縮放）的點
+function bladePts(m, pad, spinDir, a, at) {
+  const c = Math.cos(a), s = Math.sin(a), out = [];
+  for (const [bx, by0] of m.blade) { const by = by0 * spinDir; out.push(at(pad[0] + bx * c - by * s, pad[1] + bx * s + by * c, pad[2])); }
+  return out;
+}
+// 繪製清單：槳只有實心葉（含油門高時的殘影副本），沒有槳盤；回傳給測試用
+export function propDrawList(m, thr, t) {
+  const spin = t * (6 + 50 * thr), list = [];
+  m.pads.forEach((pad, pi) => {
+    const front = pad[0] > 0, dir = m.spin[pi];
+    const trails = thr > 0.4 ? [[8, 0.25], [16, 0.12]] : [];
+    for (let k = 0; k < m.blades; k++) {
+      const a = dir * spin + k * Math.PI * 2 / m.blades;
+      for (const [deg, al] of trails) list.push({ type: 'blade', pad: pi, front, dir, a: a - dir * deg * Math.PI / 180, alpha: al * Math.min(1, thr / 0.6) });
+      list.push({ type: 'blade', pad: pi, front, dir, a, alpha: 0.85 });
+    }
+  });
+  return list;
+}
+function drawProp(ctx, cam, m, pi, at, items) {
+  for (const it of items) {
+    if (it.pad !== pi) continue;
+    fillPoly(ctx, cam, bladePts(m, m.pads[pi], it.dir, it.a, at), it.front ? `rgba(255,110,40,${it.alpha})` : `rgba(200,205,215,${it.alpha})`, null);
+  }
+}
+function drawModel(ctx, cam, sim, at, sc, m) {
+  const t0 = performance.now(), R = sim.R;
   const vt = visibleTris(m, sim.p, R, cam, sc);
-  const { order, sx, shade, tri } = vt, seam = modelStats.seam;
-  if (!m.pal) m.pal = m.colors.map((c) => Array.from({ length: 16 }, (_, k) => { const b = 0.35 + 0.65 * k / 15; return `rgb(${(c[0] * b) | 0},${(c[1] * b) | 0},${(c[2] * b) | 0})`; }));
+  const { order, sx, shade, tri, depth } = vt, seam = modelStats.seam;
+  if (!m.pal) m.pal = m.colors.map((c) => Array.from({ length: 16 }, (_, k) => { const b = k / 15; return `rgb(${(c[0] * b) | 0},${(c[1] * b) | 0},${(c[2] * b) | 0})`; }));
   ctx.lineJoin = 'round'; ctx.lineWidth = 0.8;
-  let last = null;
+  // 槳依整顆槳的深度插進三角形排序（遠的先畫）
+  const items = propDrawList(m, sim.st.thr, performance.now() / 1000);
+  const pd = m.pads.map((pad) => { const q = at(pad[0], pad[1], pad[2]); return V.dot(V.sub(q, cam.c), cam.f); });
+  const props = pd.map((d, i) => i).sort((a, b) => pd[b] - pd[a]);
+  let pk = 0, last = null;
   for (let k = 0; k < order.length; k++) {
-    const i = order[k], o = i * 6, x0 = sx[o], y0 = sx[o + 1], x1 = sx[o + 2], y1 = sx[o + 3], x2 = sx[o + 4], y2 = sx[o + 5];
+    const i = order[k];
+    while (pk < props.length && pd[props[pk]] >= depth[i]) drawProp(ctx, cam, m, props[pk++], at, items);
+    const o = i * 6, x0 = sx[o], y0 = sx[o + 1], x1 = sx[o + 2], y1 = sx[o + 3], x2 = sx[o + 4], y2 = sx[o + 5];
     if (Math.abs((x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)) < 1.2) continue;   // 小於約 0.6 px² 的三角形不畫（遠處簡化）
     const col = m.pal[m.cid[tri[i]]][shade[i]];
     ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineTo(x2, y2); ctx.closePath();
@@ -109,18 +143,11 @@ function drawModel(ctx, cam, sim, at, sc, top) {
     ctx.fill();
     if (seam) ctx.stroke();
   }
-  // 槳：半透明槳盤＋ 3 片旋轉槳葉（對角同向、相鄰反向），前槳橘、後槳灰
-  const spin = performance.now() / 1000 * (6 + 50 * sim.st.thr), alpha = 0.10 + 0.20 * sim.st.thr, nb = m.blades;
-  for (const [x, y, z] of m.pads) {
-    const front = x > 0, dir = x * y > 0 ? 1 : -1, ring = front ? '#ff6a1f' : '#aab2bb', zz = z + 0.012, disc = [];
-    for (let i = 0; i < 20; i++) { const a = i / 20 * Math.PI * 2; disc.push(at(x + Math.cos(a) * m.propR, y + Math.sin(a) * m.propR, zz)); }
-    fillPoly(ctx, cam, disc, front ? `rgba(255,106,31,${alpha})` : `rgba(170,178,187,${alpha})`, ring, 1.5);
-    for (let k = 0; k < nb; k++) { const a = dir * spin + k * Math.PI * 2 / nb; line(ctx, cam, at(x, y, zz), at(x + Math.cos(a) * m.propR, y + Math.sin(a) * m.propR, zz), front ? 'rgba(255,170,120,0.85)' : 'rgba(210,216,222,0.75)', 2); }
-  }
+  while (pk < props.length) drawProp(ctx, cam, m, props[pk++], at, items);
   // FPV 鏡頭方向：從鏡頭位置沿上仰方向的短線
   const zb = M.col(R, 2), cd = V.add(V.mul(M.col(R, 0), Math.cos(m.cam.tilt * D2R)), V.mul(zb, Math.sin(m.cam.tilt * D2R))), q = at(...m.cam.pos);
   line(ctx, cam, q, V.add(q, V.mul(cd, 0.4)), '#ffb078', 2);
-  modelStats.calls++; modelStats.ms += performance.now() - t0;
+  modelStats.calls++; modelStats.ms += performance.now() - t0; modelStats.tris = order.length; modelStats.total = m.n;
 }
 function fillPoly(ctx, cam, pts, fill, stroke, sw) {
   const P = pts.map((q) => proj(cam, q)); if (P.some((q) => !q)) return;
@@ -141,16 +168,17 @@ function drawBody(ctx, cam, sim, at0) {
     for (const [x, y, front] of motors) { const q = proj(cam, at(x, y, 0)); if (!q) continue; ctx.beginPath(); ctx.moveTo(c[0], c[1]); ctx.lineTo(q[0], q[1]); ctx.strokeStyle = armC; ctx.lineWidth = 1.5; ctx.stroke(); ctx.beginPath(); ctx.arc(q[0], q[1], Math.max(1.5, px * 0.09), 0, 7); ctx.fillStyle = front ? '#ff6a1f' : '#aab2bb'; ctx.fill(); }
     ctx.beginPath(); ctx.arc(c[0], c[1], Math.max(2, px * 0.12), 0, 7); ctx.fillStyle = plate; ctx.fill(); return;
   }
-  ensureModel();
-  if (MODEL) { drawModel(ctx, cam, sim, at, sc, top); return; }
+  lodPrev = modelStats.force || lodSelect(px, lodPrev);               // 遠近分級（hi 與 low 之間有遲滯）
+  modelStats.lod = lodPrev;
+  if (lodPrev === 'hi') ensureModel('hi');
+  ensureModel('low');
+  const use = lodPrev === 'hi' && MODELS.hi.m ? MODELS.hi.m : MODELS.low.m;
+  if (use) { drawModel(ctx, cam, sim, at, sc, use); return; }
   const spin = performance.now() / 1000 * (6 + 50 * sim.st.thr);   // 槳葉轉動：油門越大轉越快
   const armW = Math.max(1.5, 0.05 * sc * cam.F / dist);
   for (const [x, y] of motors) line(ctx, cam, at(0, 0, 0), at(x, y, 0), armC, armW);
-  for (const [x, y, front] of motors) { // 槳盤：半透明圓盤＋兩片旋轉的槳葉刻線
-    const disc = [], ring = front ? '#ff6a1f' : '#aab2bb', alpha = 0.10 + 0.20 * sim.st.thr;
-    for (let i = 0; i < 20; i++) { const a = i / 20 * Math.PI * 2; disc.push(at(x + Math.cos(a) * BODY.PR, y + Math.sin(a) * BODY.PR, 0.03)); }
-    fillPoly(ctx, cam, disc, front ? `rgba(255,106,31,${alpha})` : `rgba(170,178,187,${alpha})`, ring, 1.5);
-    for (let k = 0; k < 2; k++) { const a = spin + k * Math.PI; line(ctx, cam, at(x - Math.cos(a) * BODY.PR, y - Math.sin(a) * BODY.PR, 0.03), at(x + Math.cos(a) * BODY.PR, y + Math.sin(a) * BODY.PR, 0.03), front ? 'rgba(255,170,120,0.8)' : 'rgba(210,216,222,0.7)', 1.5); }
+  for (const [x, y, front] of motors) { // 載入前的備用畫法：裸槳（兩片旋轉的槳葉線，沒有槳盤）
+    for (let k = 0; k < 2; k++) { const a = spin + k * Math.PI; line(ctx, cam, at(x - Math.cos(a) * BODY.PR, y - Math.sin(a) * BODY.PR, 0.03), at(x + Math.cos(a) * BODY.PR, y + Math.sin(a) * BODY.PR, 0.03), front ? 'rgba(255,170,120,0.9)' : 'rgba(210,216,222,0.8)', 2); }
   }
   // 中心機身板（實心）：頂面亮、底面暗，加一道頂面前後的中線
   fillPoly(ctx, cam, [at(0.22, -0.08, 0), at(0.22, 0.08, 0), at(-0.18, 0.11, 0), at(-0.18, -0.11, 0)], plate, top ? '#9aa3ad' : '#12151a', 1);

@@ -1,6 +1,23 @@
 // kodo 五吋機架低多邊形模型：解析、背面剔除、深度排序（純函式，Node 可測）。繪圖在 view.js。
 // 模型座標：x 機頭前、y 左、z 上（mm）；解析後換成公尺並縮放，讓對角軸距等於 targetDiag。
 const NEAR = 0.15;
+const norm = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
+const LIGHT1 = norm([0.5, -0.55, 0.7]), LIGHT2 = norm([-0.55, 0.45, 0.55]);   // 世界座標：+x 機頭方向、−y 右
+
+function defaultBlade(R) {
+  const o = [], n = 8, r0 = 11;
+  for (let i = 0; i <= n; i++) { const r = r0 + (R - r0) * i / n; o.push([r, 3 + 0.2 * r * (1 - 0.35 * i / n) * 0.4]); }
+  for (let i = n; i >= 0; i--) { const r = r0 + (R - r0) * i / n; o.push([r, -1 - 0.06 * r]); }
+  return o;
+}
+
+// 細節分級（依飛機在螢幕上的寬度 px，有遲滯）：'simple' 十字＋點、'low' 低多邊形、'hi' 精緻版
+export const LOD = { simple: 26, hiUp: 150, hiDown: 130 };
+export function lodSelect(px, prev = 'low') {
+  if (prev === 'hi') { if (px >= LOD.hiDown) return 'hi'; }
+  else if (px >= LOD.hiUp) return 'hi';
+  return px < LOD.simple ? 'simple' : 'low';
+}
 
 // 每個零件依有號體積檢查三角形繞向：體積為負代表繞向朝內，整個零件翻面，之後統一用「逆時針＝朝外」
 export function parseModel(json, targetDiag) {
@@ -32,6 +49,11 @@ export function parseModel(json, targetDiag) {
   return {
     n, tris, nrm, cid, colors: rgb, scale: k,
     pads: pads.map((p) => p.map((x) => x * scale)), propR: json.propRadius * scale, blades: json.propBlades || 3,
+    // 單片槳葉外形（沿 +x 的多邊形，已換成畫面公尺）；舊檔沒有就用內建的錐形
+    blade: (json.propBlade || defaultBlade(json.propRadius)).map((q) => [q[0] * scale, q[1] * scale]),
+    hub: (json.propHub || 9) * scale,
+    // 各槳轉向（順序同 pads：FL、FR、RL、RR）；舊檔對角同向
+    spin: ['FL', 'FR', 'RL', 'RR'].map((k, i) => (json.propSpin ? json.propSpin[k] : [1, -1, -1, 1][i])),
     cam: { pos: json.fpvCam.pos.map((x) => x * scale), tilt: json.fpvCam.uptiltDeg },
     // 繪製用暫存（避免每格配置記憶體）
     _sx: new Float32Array(n * 6), _depth: new Float32Array(n), _vis: new Uint32Array(n), _key: new Float64Array(n), _pack: new Float64Array(n), _order: new Uint32Array(n),
@@ -46,7 +68,7 @@ export function orderByDepth(depths, idx) {
 
 // 機身姿態 R（列主序 3×3）＋位置 p＋鏡頭 cam{c,f,r,u,F,W,H}＋額外縮放 sc。
 // 回傳 { count, order, sx, shade }：order 為可見三角形（由遠到近），sx[i*6..] 為螢幕座標，shade 為 0..15。
-export function visibleTris(m, p, R, cam, sc = 1, light = [0.28, -0.35, 0.89]) {
+export function visibleTris(m, p, R, cam, sc = 1) {
   const { tris, nrm, n } = m, sx = m._sx, dep = m._depth, vis = m._vis, key = m._key;
   const px = p[0], py = p[1], pz = p[2];
   // 鏡頭在機身座標的位置（模型單位，含縮放）：Rᵀ(c − p) / sc
@@ -54,8 +76,9 @@ export function visibleTris(m, p, R, cam, sc = 1, light = [0.28, -0.35, 0.89]) {
   const lcx = (R[0] * cx + R[3] * cy + R[6] * cz) / sc, lcy = (R[1] * cx + R[4] * cy + R[7] * cz) / sc, lcz = (R[2] * cx + R[5] * cy + R[8] * cz) / sc;
   const f = cam.f, r = cam.r, u = cam.u, F = cam.F, hw = cam.W / 2, hh = cam.H / 2;
   const cxw = cam.c[0], cyw = cam.c[1], czw = cam.c[2];
-  // 光源（世界座標）轉到機身座標
-  const L0 = R[0] * light[0] + R[3] * light[1] + R[6] * light[2], L1 = R[1] * light[0] + R[4] * light[1] + R[7] * light[2], L2 = R[2] * light[0] + R[5] * light[1] + R[8] * light[2];
+  // 兩盞固定燈（世界座標）轉到機身座標：右上前、左後上；亮度 = 0.32 + 0.6|n·L1| + 0.2|n·L2|
+  const toBody = (l) => [R[0] * l[0] + R[3] * l[1] + R[6] * l[2], R[1] * l[0] + R[4] * l[1] + R[7] * l[2], R[2] * l[0] + R[5] * l[1] + R[8] * l[2]];
+  const [A0, A1, A2] = toBody(LIGHT1), [B0, B1, B2] = toBody(LIGHT2);
   let count = 0;
   for (let t = 0; t < n; t++) {
     const o = t * 9, q = t * 3;
@@ -72,8 +95,8 @@ export function visibleTris(m, p, R, cam, sc = 1, light = [0.28, -0.35, 0.89]) {
       dsum += z;
     }
     if (!ok) continue;
-    const l = Math.max(0, nx * L0 + ny * L1 + nz * L2);
-    vis[count] = t; dep[count] = dsum / 3; key[count] = Math.max(0, Math.min(15, Math.round((0.45 + 0.55 * l) * 15)));
+    const br = 0.32 + 0.6 * Math.abs(nx * A0 + ny * A1 + nz * A2) + 0.2 * Math.abs(nx * B0 + ny * B1 + nz * B2);
+    vis[count] = t; dep[count] = dsum / 3; key[count] = Math.max(0, Math.min(15, Math.round(br * 15)));
     count++;
   }
   // 由遠到近：把深度量化後和索引打包成一個數字，用 TypedArray 原生排序（比帶比較函式的 sort 快）
