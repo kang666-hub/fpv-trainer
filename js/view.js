@@ -2,6 +2,7 @@
 import { HOVER, D2R, V, M } from './core.js';
 import { forces, thrForLevel, arrowTips } from './forces.js';
 import { chaseCam, rearCam, startHeading } from './cams.js';
+import { parseModel, visibleTris } from './model.js';
 
 let chase = null; // 追尾／跟隨鏡頭的平滑狀態
 // 機尾後方距離：桌機用 back，手機（寬 < 600px）用 backM（畫面窄，要拉遠才放得下所有箭頭）
@@ -82,6 +83,40 @@ function poly(ctx, cam, pts, color, w, dash) {
 }
 // ===== 飛機模型：機身板、四支機臂、四個槳盤、機頭鏡頭。頂面亮、底面暗（看到哪一面就畫哪一種顏色），倒飛一眼可辨 =====
 const BODY = { A: 0.34, PR: 0.17 };
+// kodo 機架模型：第一次畫機身時才載入；載入中或失敗都退回舊的線框畫法（不丟錯）
+let MODEL = null, modelState = 'idle';
+export const modelStats = { calls: 0, ms: 0 };
+function ensureModel() {
+  if (modelState !== 'idle' || typeof fetch !== 'function' || typeof location === 'undefined') return;
+  modelState = 'loading';
+  fetch(new URL('../assets/models/kodo_lowpoly.json', import.meta.url)).then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((j) => { MODEL = parseModel(j, 2 * Math.SQRT2 * BODY.A); modelState = 'ready'; })
+    .catch(() => { modelState = 'failed'; });
+}
+function drawModel(ctx, cam, sim, at, sc, top) {
+  const m = MODEL, t0 = performance.now(), R = sim.R;
+  const vt = visibleTris(m, sim.p, R, cam, sc);
+  const { order, sx, shade, tri } = vt;
+  ctx.lineJoin = 'round'; ctx.lineWidth = 0.8;
+  for (let k = 0; k < order.length; k++) {
+    const i = order[k], c = m.colors[m.cid[tri[i]]], b = 0.35 + 0.65 * shade[i] / 15, o = i * 6;
+    const col = `rgb(${(c[0] * b) | 0},${(c[1] * b) | 0},${(c[2] * b) | 0})`;
+    ctx.beginPath(); ctx.moveTo(sx[o], sx[o + 1]); ctx.lineTo(sx[o + 2], sx[o + 3]); ctx.lineTo(sx[o + 4], sx[o + 5]); ctx.closePath();
+    ctx.fillStyle = col; ctx.strokeStyle = col; ctx.fill(); ctx.stroke();
+  }
+  // 槳：半透明槳盤＋ 3 片旋轉槳葉（對角同向、相鄰反向），前槳橘、後槳灰
+  const spin = performance.now() / 1000 * (6 + 50 * sim.st.thr), alpha = 0.10 + 0.20 * sim.st.thr, nb = m.blades;
+  for (const [x, y, z] of m.pads) {
+    const front = x > 0, dir = x * y > 0 ? 1 : -1, ring = front ? '#ff6a1f' : '#aab2bb', zz = z + 0.012, disc = [];
+    for (let i = 0; i < 20; i++) { const a = i / 20 * Math.PI * 2; disc.push(at(x + Math.cos(a) * m.propR, y + Math.sin(a) * m.propR, zz)); }
+    fillPoly(ctx, cam, disc, front ? `rgba(255,106,31,${alpha})` : `rgba(170,178,187,${alpha})`, ring, 1.5);
+    for (let k = 0; k < nb; k++) { const a = dir * spin + k * Math.PI * 2 / nb; line(ctx, cam, at(x, y, zz), at(x + Math.cos(a) * m.propR, y + Math.sin(a) * m.propR, zz), front ? 'rgba(255,170,120,0.85)' : 'rgba(210,216,222,0.75)', 2); }
+  }
+  // FPV 鏡頭方向：從鏡頭位置沿上仰方向的短線
+  const zb = M.col(R, 2), cd = V.add(V.mul(M.col(R, 0), Math.cos(m.cam.tilt * D2R)), V.mul(zb, Math.sin(m.cam.tilt * D2R))), q = at(...m.cam.pos);
+  line(ctx, cam, q, V.add(q, V.mul(cd, 0.4)), '#ffb078', 2);
+  modelStats.calls++; modelStats.ms += performance.now() - t0;
+}
 function fillPoly(ctx, cam, pts, fill, stroke, sw) {
   const P = pts.map((q) => proj(cam, q)); if (P.some((q) => !q)) return;
   ctx.beginPath(); P.forEach((q, i) => (i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]))); ctx.closePath();
@@ -101,6 +136,8 @@ function drawBody(ctx, cam, sim, at0) {
     for (const [x, y, front] of motors) { const q = proj(cam, at(x, y, 0)); if (!q) continue; ctx.beginPath(); ctx.moveTo(c[0], c[1]); ctx.lineTo(q[0], q[1]); ctx.strokeStyle = armC; ctx.lineWidth = 1.5; ctx.stroke(); ctx.beginPath(); ctx.arc(q[0], q[1], Math.max(1.5, px * 0.09), 0, 7); ctx.fillStyle = front ? '#ff6a1f' : '#aab2bb'; ctx.fill(); }
     ctx.beginPath(); ctx.arc(c[0], c[1], Math.max(2, px * 0.12), 0, 7); ctx.fillStyle = plate; ctx.fill(); return;
   }
+  ensureModel();
+  if (MODEL) { drawModel(ctx, cam, sim, at, sc, top); return; }
   const spin = performance.now() / 1000 * (6 + 50 * sim.st.thr);   // 槳葉轉動：油門越大轉越快
   const armW = Math.max(1.5, 0.05 * sc * cam.F / dist);
   for (const [x, y] of motors) line(ctx, cam, at(0, 0, 0), at(x, y, 0), armC, armW);
