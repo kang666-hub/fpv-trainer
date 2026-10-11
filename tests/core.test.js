@@ -68,7 +68,7 @@ function b2Metrics(key) {
     thr98: rec.find((x) => x.t >= t0 && x.thr >= 0.98)?.t, near, tilts };
 }
 
-test('B2 dive：前傾 0.45–0.7 秒、停頓 ≤ 0.05 秒、拉回 0.25–0.35 秒、前傾 ÷ 拉回 ≥ 1.5；前傾段油門貼著懸停 ÷ cosθ；拉回前段滿油；回平後略低於懸停', () => {
+test('B2 dive：前傾 0.45–0.7 秒、停頓 ≤ 0.05 秒、拉回 0.25–0.35 秒、前傾 ÷ 拉回 ≥ 1.5；前傾段油門貼著懸停 ÷ cosθ；拉回前段滿油', () => {
   const d = b2Metrics('dive');
   assert.ok(d.rise >= 0.45 && d.rise <= 0.7, `前傾 ${d.rise.toFixed(3)} 秒`);
   assert.ok(d.pause <= 0.05, `最低點停頓 ${d.pause.toFixed(3)} 秒`);
@@ -81,8 +81,6 @@ test('B2 dive：前傾 0.45–0.7 秒、停頓 ≤ 0.05 秒、拉回 0.25–0.35
   assert.ok(Math.abs(d.tPeak - d.thr98) < 0.1, `油門到頂與傾角最大相差 ${(d.tPeak - d.thr98).toFixed(3)} 秒`);
   const half = d.rec.filter((x) => x.t >= d.tPeak && x.t <= d.tPeak + d.pull * 0.5);
   assert.ok(half.every((x) => x.thr >= 0.95), '拉回前 50% 油門應 ≥ 95%');
-  assert.ok(d.thrAfter <= HOVER + 0.05, `回平後 0.1 秒油門 ${d.thrAfter.toFixed(2)}`);
-  assert.ok(d.thrAfter < HOVER, '回平後油門應略低於懸停');
 });
 
 test('B2 dive：拉平後 2 秒內最高點 ≤ 拉平點 + 0.6m、1 秒後 |垂直速度| < 0.5；最低高度 ≥ 進場 − 2m；速度峰值 ≥ 12 m/s', () => {
@@ -108,6 +106,20 @@ function sideShare(r, t0, t1, want) {
   const seg = r.rec.filter((x) => x.t >= t0 && x.t <= t1), n = seg.filter((x) => curveSide(tiltOf2(x), x.thr) === want).length;
   return { n, total: seg.length, share: n / seg.length };
 }
+
+test('B2 dive／wide：拉回到進場前傾角（不是 0°）；拉平後 1 秒 |垂直速度| < 0.3、之後高度變化 < 0.3m；最後 1 秒速度 ≥ 5 m/s', () => {
+  const fwd = (x) => Math.atan2(x.R[2], x.R[8]) * 180 / Math.PI;
+  for (const key of ['dive', 'wide']) {
+    const d = b2Metrics(key), e0 = fwd(d.rec[0]), e1 = fwd(d.rec.at(-1));
+    assert.ok(e0 > 10, `${key} 進場前傾 ${e0.toFixed(1)}°`);
+    assert.ok(Math.abs(e1 - e0) < 2, `${key} 結束前傾 ${e1.toFixed(1)}° vs 進場 ${e0.toFixed(1)}°`);
+    assert.ok(Math.abs(d.vz1) < 0.3, `${key} 拉平後 1 秒垂直速度 ${d.vz1.toFixed(2)}`);
+    const after = d.rec.filter((x) => x.t >= d.tFlat), zs = after.map((x) => x.p[2]);
+    assert.ok(Math.max(...zs) - Math.min(...zs) < 0.3, `${key} 拉平後高度變化 ${(Math.max(...zs) - Math.min(...zs)).toFixed(2)} m`);
+    assert.ok(speed(d.rec.at(-1)) >= 5, `${key} 最後速度 ${speed(d.rec.at(-1)).toFixed(1)}`);
+    assert.equal(d.r.touched, false);
+  }
+});
 
 test('B2 油門–傾角圖：dive 前傾段 ≥ 65% 在曲線上（level；超過 66.4° 的部分是 down 屬預期）；slam 開始後 0.3 秒內有 up；balloon 回平後 1 秒 ≥ 80% 是 up', () => {
   const d = b2Metrics('dive'), lv = sideShare(d.r, d.tStart, d.tPeak, 'level');
