@@ -379,21 +379,21 @@ test('追尾：B5a 全部變體鏡頭水平方向每秒變化 ≤ 400°；B3、B
   for (const id of ['B3', 'B4']) for (const v of lesson(id).variants) { const c = camTrace(id, v.key, 'chase'); assert.ok(c.maxA < 30, `${id}/${v.key} 最大夾角 ${c.maxA.toFixed(1)}°`); }
 });
 
-test('起始高度參考面：起始高度 > 8m 的示範有 refPlane（含 S2、S3），其他沒有', () => {
-  for (const L of LESSONS) {
-    const sim = new Sim(); L.start(sim, L.variants[0], controlDefaults(L));
-    assert.equal(!!L.refPlane, sim.p[2] > 8, `${L.id} 起始高度 ${sim.p[2]} m，refPlane=${L.refPlane}`);
+test('地面網格：格距固定（任何高度同一值）、所有關卡沒有 refPlane；FPV 在 20m 高時網格範圍涵蓋畫面下緣看得到的地面', async () => {
+  const { gridSpacing, GRID } = await import('../js/view.js');
+  const g0 = gridSpacing(0);
+  for (const z of [0, 1, 3, 10, 15, 20, 45, 100]) assert.equal(gridSpacing(z), g0);
+  assert.equal(g0, 2);
+  for (const L of LESSONS) assert.equal(L.refPlane, undefined, `${L.id} 還有 refPlane`);
+  const { camFromBody } = await import('../js/view.js');
+  for (const [W, H] of [[400, 300], [400, 225], [320, 240], [800, 450]]) for (const z of [10, 15, 20]) {
+    const cam = camFromBody([0, 0, z], [1, 0, 0, 0, 1, 0, 0, 0, 1], W, H, 25, 110);
+    // 畫面下緣中央那條射線打到地面的水平距離
+    const y = H / 2, d = V.add(cam.f, V.mul(cam.u, -(y / cam.F)));
+    if (d[2] >= 0) continue;                       // 畫面下緣仍看不到地面：不需要網格
+    const hit = z / -d[2] * Math.hypot(d[0], d[1]);
+    assert.ok(hit <= GRID.R, `${W}x${H} 高 ${z}m：下緣地面在 ${hit.toFixed(0)}m，網格半徑 ${GRID.R}m`);
   }
-  assert.equal(lesson('S2').refPlane, true); assert.equal(lesson('S3').refPlane, true);
-});
-
-test('參考面不進 FPV：FPV 的繪製計畫有地面網格、沒有參考面；第三人稱兩者都有；FPV 在 10–20m 高度時地面網格範圍夠遠', async () => {
-  const { scenePlan, gridSpacing } = await import('../js/view.js'), S = { refPlane: { x: 0, y: 0, z: 20 } };
-  assert.deepEqual(scenePlan(S, false), { ground: true, refPlane: false, drone: false });
-  assert.deepEqual(scenePlan(S, true), { ground: true, refPlane: true, drone: true });
-  assert.equal(scenePlan({ refPlane: null }, true).refPlane, false);
-  for (const z of [3, 10, 15, 20, 45]) assert.ok(22 * gridSpacing(z) >= 4.4 * z || gridSpacing(z) === 12, `高度 ${z}m 格距 ${gridSpacing(z)}`);
-  assert.equal(gridSpacing(1), 2);
 });
 
 test('fpvVs 旗標只在 B5a、B5', () => {

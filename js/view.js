@@ -47,20 +47,26 @@ function drawSky(ctx, cam) {
   }
   b.cx.putImageData(b.img, 0, 0); ctx.imageSmoothingEnabled = true; ctx.drawImage(b.cv, 0, 0, cam.W, cam.H);
 }
-// 地面網格的格距：鏡頭離地越高格子越大（總範圍 N × S 公尺要夠遠，FPV 在 10–20m 高度才看得到地面）
-export const gridSpacing = (camZ) => Math.min(12, 2 * Math.max(1, Math.ceil(Math.max(0, camZ) / 8)));
+// 地面網格：固定格距 2m（和 A2 一樣），範圍半徑 GRID.R；遠處淡出。同一透明度的線段合併成一筆畫，範圍加大也不吃效能
+export const GRID = { S: 2, R: 100 };
+export const gridSpacing = () => GRID.S;
 function drawGrid(ctx, cam) {
-  const S = gridSpacing(cam.c[2]), N = 22, cx = Math.round(cam.c[0] / S) * S, cy = Math.round(cam.c[1] / S) * S;
-  ctx.lineWidth = 1;
-  for (let k = -N; k <= N; k++) for (let m = -N; m < N; m += 2) {
-    for (const dir of [0, 1]) {
-      const a = dir ? [cx + k * S, cy + m * S, 0] : [cx + m * S, cy + k * S, 0];
-      const bb = dir ? [cx + k * S, cy + (m + 2) * S, 0] : [cx + (m + 2) * S, cy + k * S, 0];
-      const dist = Math.hypot(a[0] - cam.c[0], a[1] - cam.c[1]); const al = 0.2 * (1 - dist / (N * S));
-      if (al <= 0) continue;
-      ctx.beginPath(); if (seg(ctx, cam, a, bb)) { ctx.strokeStyle = `rgba(200,210,220,${al.toFixed(3)})`; ctx.stroke(); }
+  const { S, R } = GRID, cx = Math.round(cam.c[0] / S) * S, cy = Math.round(cam.c[1] / S) * S, n = Math.ceil(R / S), B = 8, paths = Array.from({ length: B }, () => []);
+  for (let k = -n; k <= n; k++) for (let dir = 0; dir < 2; dir++) {
+    for (let m = -n; m < n;) {
+      const step = Math.abs(m * S) < 40 ? 2 : 6, e = Math.min(n, m + step);                // 近處每 4m 一段、遠處每 12m 一段
+      const a = dir ? [cx + k * S, cy + m * S, 0] : [cx + m * S, cy + k * S, 0], bb = dir ? [cx + k * S, cy + e * S, 0] : [cx + e * S, cy + k * S, 0];
+      const dist = Math.hypot((a[0] + bb[0]) / 2 - cam.c[0], (a[1] + bb[1]) / 2 - cam.c[1]), f = 1 - dist / R;
+      m = e; if (f <= 0) continue;
+      paths[Math.min(B - 1, Math.floor(f * B))].push(a, bb);
     }
   }
+  ctx.lineWidth = 1;
+  paths.forEach((ps, i) => {
+    if (!ps.length) return;
+    ctx.beginPath(); let any = false; for (let j = 0; j < ps.length; j += 2) any = seg(ctx, cam, ps[j], ps[j + 1]) || any;
+    if (any) { ctx.strokeStyle = `rgba(200,210,220,${(0.2 * (i + 0.5) / B).toFixed(3)})`; ctx.stroke(); }
+  });
 }
 function drawPole(ctx, cam, pp) {
   const h = pp[2] || 6, a = [pp[0], pp[1], 0], b = [pp[0], pp[1], h];
