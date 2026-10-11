@@ -266,8 +266,7 @@ const B5 = {
     if (v.pullUp && !m.p2) { // 微拉高：小爬升，帶著一點向上速度進半滾
       if (!mem.pu) mem.pu = t;
       const tau = t - mem.pu;
-      // push 版本：倒置時推力朝下、整段都在往下掉，所以要先拉得比 pull 多（約 +6 m/s 往上），翻完才不會比進場低
-      const dur = v.push ? 0.55 : 0.4, a = v.push ? 12 : 6;
+      const dur = 0.4, a = 6;
       if (tau < dur) return { ...track(sim, { p: [B5_V * t - B5_V, 0, B5_Z + 0.5 * a * tau * tau], v: [B5_V, 0, a * tau], a: [0, 0, a], psi: 0, psid: 0 }), phase: null };
       m.p2 = t;
     }
@@ -279,14 +278,14 @@ const B5 = {
       if (mem.acc >= 179.9) m.p3 = t;
       return { thr: 0.12, roll: (v.rollDir || 1) * stick, pitch: 0, yaw: 0, phase: null };
     }
-    if (v.push && !m.p4) { // 推桿穿過上半圈：倒置時往前推 Pitch，機頭往天空繞；倒置時油門要小（推力朝下），過了 90° 才依傾角補到維持高度
+    if (v.push && !m.p4) { // 對照：倒置後有速度時推 Pitch，機頭往天空繞但路線繞不上去；倒置時油門小（推力朝下），過了 90° 依傾角補油，不追高度
       if (!mem.lp) mem.lp = { x0: sim.p[0], z0: sim.p[2], t0: t };
       mem.pacc = mem.pacc || 0;
       const st = Math.min(0.45, Math.max(0, (180 - mem.pacc) / (500 * DT)));
       mem.pacc += st * 500 * DT;
       if (180 - mem.pacc < 1e-6) m.p4 = t;
       else {
-        const up = sim.R[8], out = { thr: up > 0.25 ? clamp(HOVER / up, 0, 1) : 0.05, roll: 0, pitch: st, yaw: 0, phase: null };
+        const up = sim.R[8], rp = clamp(up / 0.5, 0, 1), out = { thr: 0.05 + rp * (clamp(HOVER / Math.max(up, 0.4), 0, 1) - 0.05), roll: 0, pitch: st, yaw: 0, phase: null }; // 倒置時小，機頭朝上後依傾角逐漸加（不看高度）
         mem.last = { thr: out.thr, roll: 0, pitch: out.pitch };
         return out;
       }
@@ -318,7 +317,7 @@ const B5 = {
     // 桿量從半圓最後一格的值開始平滑變化（每 0.1 秒 ≤ 20%），不會在切換那一格跳。對照 over 只保留「油門推太大」這個錯誤。
     const e = euler(sim.R), step = 2.0 * DT, slew = (cur, goal) => cur + clamp(goal - cur, -step, step);
     const ex = (mem.ex = mem.ex || { ...(mem.last || { thr: HOVER, roll: 0, pitch: 0 }) });
-    const goalThr = v.over ? 1 : clamp(HOVER / Math.max(0.3, sim.R[8]) - 0.12 * sim.v[2] + (v.push ? 0.06 * (B5_Z + 1.5 - sim.p[2]) : 0), 0, 1); // push：回到進場高度以上
+    const goalThr = v.over ? 1 : clamp(HOVER / Math.max(0.3, sim.R[8]) - 0.12 * sim.v[2], 0, 1);
     ex.thr = slew(ex.thr, goalThr);
     ex.roll = slew(ex.roll, clamp(-e.roll * 8 / 500, -1, 1));
     ex.pitch = slew(ex.pitch, clamp(((mem.pitch0 ?? 0) - e.pitch) * 8 / 500, -1, 1));
