@@ -516,6 +516,24 @@ test('S2／S3「推一下」：脈衝結束後 1 秒傾角變化 < 1°；水平�
   }
 });
 
+test('S2／S3 單桿平順：a15 ≤ 120°/s、a45 ≤ 200°/s；1°→目標−1° 費時 ≥ 0.15 秒；停在目標 ±1°；全變體不觸地、a15／a45 最低高度 ≥ 2m', () => {
+  for (const id of ['S2', 'S3']) for (const v of lesson(id).variants) {
+    const r = run(id, v.key); assert.equal(r.crashed, false, `${id}/${v.key} 觸地`);
+    if (v.hold) continue;
+    let maxW = 0, t1 = null, t2 = null;
+    for (let i = 1; i < r.rec.length; i++) {
+      const a = r.rec[i - 1], b = r.rec[i];
+      if (b.t < 3) maxW = Math.max(maxW, Math.abs(tiltOf(b) - tiltOf(a)) / (b.t - a.t));
+      if (t1 === null && tiltOf(b) >= 1) t1 = b.t;
+      if (t2 === null && tiltOf(b) >= v.ang - 1) t2 = b.t;
+    }
+    assert.ok(maxW <= (v.key === 'a15' ? 120 : 200), `${id}/${v.key} 最大角速度 ${maxW.toFixed(0)}°/s`);
+    assert.ok(t2 - t1 >= 0.15, `${id}/${v.key} 轉動時間 ${(t2 - t1).toFixed(2)}s`);
+    const end = after(r, 2.5)[0]; assert.ok(Math.abs(tiltOf(end) - v.ang) <= 1, `${id}/${v.key} 停在 ${tiltOf(end).toFixed(1)}°`);
+    assert.ok(Math.min(...zs(r)) >= 2, `${id}/${v.key} 最低高度 ${Math.min(...zs(r)).toFixed(2)}m`);
+  }
+});
+
 test('S2／S3「一直推著」：累計轉動角 > 180°', () => {
   for (const id of ['S2', 'S3']) {
     const r = run(id, 'hold'); let acc = 0;
