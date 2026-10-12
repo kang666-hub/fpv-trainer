@@ -110,7 +110,7 @@ function poly(ctx, cam, pts, color, w, dash) {
 }
 // ===== 飛機模型：機身板、四支機臂、四個槳盤、機頭鏡頭。頂面亮、底面暗（看到哪一面就畫哪一種顏色），倒飛一眼可辨 =====
 const BODY = { A: 0.34, PR: 0.17 };
-// kodo 機架模型：低多邊形（lowpoly）與精緻版（v2）各自第一次需要時才載入；載入中或失敗都退回舊畫法（不丟錯）
+// Kodō 機架模型：低多邊形（lowpoly）與精緻版（v2）各自第一次需要時才載入；載入中或失敗都退回舊畫法（不丟錯）
 const MODELS = { low: { file: 'kodo_lowpoly.json', state: 'idle', m: null }, hi: { file: 'kodo_v2.json', state: 'idle', m: null } };
 let lodPrev = 'low';
 export const modelStats = { calls: 0, ms: 0, seam: true, lod: 'low', force: null };

@@ -1,4 +1,4 @@
-// kodo 五吋機架低多邊形模型：解析、背面剔除、深度排序（純函式，Node 可測）。繪圖在 view.js。
+// Kodō 五吋機架低多邊形模型：解析、背面剔除、深度排序（純函式，Node 可測）。繪圖在 view.js。
 // 模型座標：x 機頭前、y 左、z 上（mm）；解析後換成公尺並縮放，讓對角軸距等於 targetDiag。
 const NEAR = 0.15;
 const norm = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
