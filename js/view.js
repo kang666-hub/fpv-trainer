@@ -32,32 +32,59 @@ function seg(ctx, cam, a, b) {
 }
 function line(ctx, cam, a, b, color, w) { ctx.beginPath(); if (seg(ctx, cam, a, b)) { ctx.strokeStyle = color; ctx.lineWidth = w; ctx.stroke(); } }
 
-// 天空與地面（低解析度逐像素，倒飛時自然翻轉）
+// 天空與地面：漸層用低解析度逐像素（漸層平滑，放大看不出來）；天地交界是一條直線，用裁切路徑精確分開，傾斜時不會出現階梯
 const skyBuf = new Map();
-function drawSky(ctx, cam) {
-  const bw = 120, bh = Math.round(120 * cam.H / cam.W);
-  let b = skyBuf.get(ctx); if (!b || b.h !== bh) { const cv = document.createElement('canvas'); cv.width = bw; cv.height = bh; b = { cv, cx: cv.getContext('2d'), h: bh, img: null }; b.img = b.cx.createImageData(bw, bh); skyBuf.set(ctx, b); }
-  const d = b.img.data, sx = cam.W / bw, camZ = cam.c[2];
+function skyLayer(cam, L, ground) {
+  const { cv, cx, img, bw, bh } = L, d = img.data, sx = cam.W / bw;
   for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) {
     const X = ((i + 0.5) * sx - cam.W / 2) / cam.F, Y = -((j + 0.5) * sx - cam.H / 2) / cam.F;
     const rz = cam.f[2] + X * cam.r[2] + Y * cam.u[2], rl = Math.hypot(cam.f[0] + X * cam.r[0] + Y * cam.u[0], cam.f[1] + X * cam.r[1] + Y * cam.u[1], rz);
     const s = rz / rl, o = (j * bw + i) * 4;
-    if (s < 0 && camZ > 0) { const k = Math.min(1, -s * 3); d[o] = 30 - 8 * k; d[o + 1] = 34 - 8 * k; d[o + 2] = 30 - 8 * k; }
+    if (ground) { const k = Math.min(1, Math.abs(s) * 3); d[o] = 30 - 8 * k; d[o + 1] = 34 - 8 * k; d[o + 2] = 30 - 8 * k; }
     else { const k = Math.min(1, Math.max(0, s) * 1.6); d[o] = 74 - 52 * k; d[o + 1] = 92 - 62 * k; d[o + 2] = 112 - 70 * k; }
     d[o + 3] = 255;
   }
-  b.cx.putImageData(b.img, 0, 0); ctx.imageSmoothingEnabled = true; ctx.drawImage(b.cv, 0, 0, cam.W, cam.H);
+  cx.putImageData(img, 0, 0); return cv;
+}
+const mkLayer = (bw, bh) => { const cv = document.createElement('canvas'); cv.width = bw; cv.height = bh; const cx = cv.getContext('2d'); return { cv, cx, img: cx.createImageData(bw, bh), bw, bh }; };
+// 畫面矩形被半平面 g(x,y) = g0 + gx·x + gy·y < 0 切出的多邊形（Sutherland–Hodgman，4 個角）
+export function groundPoly(W, H, g0, gx, gy) {
+  const pts = [[0, 0], [W, 0], [W, H], [0, H]], g = (p) => g0 + gx * p[0] + gy * p[1], out = [];
+  for (let i = 0; i < 4; i++) {
+    const a = pts[i], b = pts[(i + 1) % 4], ga = g(a), gb = g(b);
+    if (ga < 0) out.push(a);
+    if ((ga < 0) !== (gb < 0)) { const k = ga / (ga - gb); out.push([a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k]); }
+  }
+  return out;
+}
+export function horizonGround(cam) {
+  const gx = cam.r[2] / cam.F, gy = -cam.u[2] / cam.F, g0 = cam.f[2] - gx * cam.W / 2 - gy * cam.H / 2;
+  return groundPoly(cam.W, cam.H, g0, gx, gy);
+}
+function drawSky(ctx, cam) {
+  const bw = 120, bh = Math.round(120 * cam.H / cam.W);
+  let b = skyBuf.get(ctx);
+  if (!b || b.h !== bh) { b = { h: bh, sky: mkLayer(bw, bh), gnd: mkLayer(bw, bh) }; skyBuf.set(ctx, b); }
+  const sky = skyLayer(cam, b.sky, false), gnd = cam.c[2] > 0 ? skyLayer(cam, b.gnd, true) : null;
+  ctx.imageSmoothingEnabled = true; ctx.drawImage(sky, 0, 0, cam.W, cam.H);
+  if (!gnd) return;
+  // 射線 z 分量 = 0 的直線：fz + X·rz + Y·uz = 0，X = (x−W/2)/F，Y = −(y−H/2)/F；地面在 < 0 那側
+  const poly = horizonGround(cam); if (poly.length < 3) return;
+  ctx.save(); ctx.beginPath(); poly.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.closePath(); ctx.clip();
+  ctx.drawImage(gnd, 0, 0, cam.W, cam.H); ctx.restore();
 }
 // 地面網格：固定格距 2m（和 A2 一樣），範圍半徑 GRID.R；遠處淡出。同一透明度的線段合併成一筆畫，範圍加大也不吃效能
 export const GRID = { S: 2, R: 100 };
 export const gridSpacing = () => GRID.S;
-function drawGrid(ctx, cam) {
+function drawGrid(ctx, cam, fpv) {
   const { S, R } = GRID, cx = Math.round(cam.c[0] / S) * S, cy = Math.round(cam.c[1] / S) * S, n = Math.ceil(R / S), B = 8, paths = Array.from({ length: B }, () => []);
   for (let k = -n; k <= n; k++) for (let dir = 0; dir < 2; dir++) {
     for (let m = -n; m < n;) {
       const step = Math.abs(m * S) < 40 ? 2 : 6, e = Math.min(n, m + step);                // 近處每 4m 一段、遠處每 12m 一段
       const a = dir ? [cx + k * S, cy + m * S, 0] : [cx + m * S, cy + k * S, 0], bb = dir ? [cx + k * S, cy + e * S, 0] : [cx + e * S, cy + k * S, 0];
-      const dist = Math.hypot((a[0] + bb[0]) / 2 - cam.c[0], (a[1] + bb[1]) / 2 - cam.c[1]), f = 1 - dist / R;
+      // 第三人稱：水平距離線性淡出；FPV：用鏡頭到線段的 3D 距離，30m 內維持最亮再淡出
+      const dh = Math.hypot((a[0] + bb[0]) / 2 - cam.c[0], (a[1] + bb[1]) / 2 - cam.c[1]), d3 = Math.hypot(dh, cam.c[2]);
+      const f = fpv ? (d3 <= 30 ? 1 : 1 - (d3 - 30) / (R - 30)) : 1 - dh / R;
       m = e; if (f <= 0) continue;
       paths[Math.min(B - 1, Math.floor(f * B))].push(a, bb);
     }
@@ -66,7 +93,7 @@ function drawGrid(ctx, cam) {
   paths.forEach((ps, i) => {
     if (!ps.length) return;
     ctx.beginPath(); let any = false; for (let j = 0; j < ps.length; j += 2) any = seg(ctx, cam, ps[j], ps[j + 1]) || any;
-    if (any) { ctx.strokeStyle = `rgba(200,210,220,${(0.2 * (i + 0.5) / B).toFixed(3)})`; ctx.stroke(); }
+    if (any) { ctx.strokeStyle = `rgba(200,210,220,${((fpv ? 0.373 : 0.2) * (i + 0.5) / B).toFixed(3)})`; ctx.stroke(); }
   });
 }
 function drawPole(ctx, cam, pp) {
@@ -278,7 +305,7 @@ export function scenePlan(S, withDrone) {
 }
 export function scene(ctx, cam, S, withDrone) {
   const sim = S.sim, plan = scenePlan(S, withDrone);
-  drawSky(ctx, cam); if (plan.ground) drawGrid(ctx, cam);
+  drawSky(ctx, cam); if (plan.ground) drawGrid(ctx, cam, !withDrone);
   const poles = (S.poles || []).map((pp) => ({ pp, z: V.dot(V.sub([pp[0], pp[1], 3], cam.c), cam.f) }));
   const dz = V.dot(V.sub(sim.p, cam.c), cam.f);
   poles.filter((o) => o.z >= dz).sort((a, b) => b.z - a.z).forEach((o) => drawPole(ctx, cam, o.pp));

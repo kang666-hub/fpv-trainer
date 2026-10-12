@@ -604,3 +604,21 @@ test('S6 readout／curve：66.4° 為臨界，超過 over = true；曲線在 0°
   const lv = jsonLevels.find((l) => l.id === 'S6');
   assert.ok(lv.readout.line.includes('{tilt}') && lv.readout.warn.includes('{need}') && lv.curve.x && lv.controls[0].key === 'tilt');
 });
+
+test('FPV 天地交界：地面多邊形 = 射線朝下的像素（任意姿態、含倒飛），交界是直線不靠低解析度緩衝', async () => {
+  const { horizonGround, camFromBody } = await import('../js/view.js');
+  const inside = (poly, x, y) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
+  let bad = 0, n = 0;
+  for (const roll of [0, 0.3, 0.8, 1.6, 2.6, 3.1]) for (const pitch of [-0.5, 0, 0.4]) {
+    const cr = Math.cos(roll), sr = Math.sin(roll), cp = Math.cos(pitch), sp = Math.sin(pitch);
+    const Rx = [1, 0, 0, 0, cr, -sr, 0, sr, cr], Ry = [cp, 0, sp, 0, 1, 0, -sp, 0, cp];
+    const R = Array.from({ length: 9 }, (_, k) => { const i = Math.floor(k / 3), j = k % 3; return Ry[i * 3] * Rx[j] + Ry[i * 3 + 1] * Rx[3 + j] + Ry[i * 3 + 2] * Rx[6 + j]; });
+    const W = 300, H = 200, cam = camFromBody([0, 0, 10], R, W, H, 25, 110), poly = horizonGround(cam);
+    for (let y = 3.5; y < H; y += 17) for (let x = 3.5; x < W; x += 19) {
+      const X = (x - W / 2) / cam.F, Y = -(y - H / 2) / cam.F, rz = cam.f[2] + X * cam.r[2] + Y * cam.u[2];
+      if (Math.abs(rz) < 0.02) continue; n++;
+      if (inside(poly, x, y) !== (rz < 0)) bad++;
+    }
+  }
+  assert.ok(n > 100 && bad === 0, `不一致 ${bad}/${n}`);
+});
