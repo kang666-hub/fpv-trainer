@@ -245,7 +245,10 @@ test('B5 推、拉皆為飛法：push 為 style（左 Roll ＋ 推 Pitch，Pitch
   const rsg = (key) => { const r = run('B5', key), m = r.mem.marks; return Math.sign(r.rec.filter((x) => x.t >= m.p2 && x.t <= m.p3).reduce((a, x) => a + x.roll, 0)); };
   assert.equal(sgn('pull'), -1); assert.equal(sgn('push'), 1); assert.equal(rsg('pull'), 1); assert.equal(rsg('push'), -1);
   const o = run('B5', 'overthr'), m = o.mem.marks;
-  assert.ok(Math.max(...o.rec.filter((x) => x.t >= m.p4).map((x) => x.p[2])) > 12 + 1, '對照改出後高度沒有高於進場');
+  const top = Math.max(...o.rec.filter((x) => x.t >= m.p4).map((x) => x.p[2]));
+  assert.ok(top > 13 && top < 20, `overthr 最高點 ${top.toFixed(1)}m`);
+  assert.ok(Math.abs(o.rec.at(-1).v[2]) < 1, `overthr 結束垂直速度 ${o.rec.at(-1).v[2].toFixed(2)}`);
+  for (const v of lesson('B5').variants) assert.ok(Math.abs(run('B5', v.key).rec.at(-1).v[2]) < 0.5, `B5/${v.key} 結束垂直速度`);
   for (const v of lesson('B5').variants) assert.deepEqual(lesson('B5').ghost(v), []);
 });
 

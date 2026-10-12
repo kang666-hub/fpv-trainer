@@ -297,7 +297,8 @@ const B5 = {
     // 桿量從半圓最後一格的值開始平滑變化（每 0.1 秒 ≤ 20%），不會在切換那一格跳。對照 over 只保留「油門推太大」這個錯誤。
     const e = euler(sim.R), step = 2.0 * DT, slew = (cur, goal) => cur + clamp(goal - cur, -step, step);
     const ex = (mem.ex = mem.ex || { ...(mem.last || { thr: HOVER, roll: 0, pitch: 0 }) });
-    const goalThr = v.over ? 1 : clamp(HOVER / Math.max(0.3, sim.R[8]) - 0.12 * sim.v[2], 0, 1);
+    if (v.over && sim.p[2] > B5_Z - 2) mem.overDone = true;   // 對照：油門維持 100% 直到升到進場 −2m（10m）才收回懸停附近；收油後慣性還會再帶高幾公尺
+    const goalThr = v.over && !mem.overDone ? 1 : clamp(HOVER / Math.max(0.3, sim.R[8]) - 0.12 * sim.v[2], 0, 1);
     ex.thr = ex.thr + clamp(goalThr - ex.thr, -3 * step, 3 * step); // 油門追得比姿態快：翻完正在往下掉，要及時補上去（6／秒）
     ex.roll = slew(ex.roll, clamp(-e.roll * 8 / 500, -1, 1));
     ex.pitch = slew(ex.pitch, clamp(((mem.pitch0 ?? 0) - e.pitch) * 8 / 500, -1, 1));
