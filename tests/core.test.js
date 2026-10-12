@@ -215,43 +215,41 @@ test('B4 smallnocomp：3 秒內掉高 > 0.5m；yawonly：航向轉 ≥ 90° 但�
   assert.ok(pathDirChange(c, 1.0) < 30, `路線方向變化 ${pathDirChange(c, 1.0).toFixed(0)}°`);
 });
 
-test('B5：飛法改出後 1 秒高度 ≤ 進場且 |垂直速度| < 0.5；對照改出後高度 ≥ 進場 + 1 m', () => {
-  for (const key of ['pull', 'direct', 'overthr']) {
-    const r = run('B5', key), m = r.mem.marks, z0 = 12;
-    const at = r.rec.reduce((a, x) => (Math.abs(x.t - (m.p4 + 1)) < Math.abs(a.t - (m.p4 + 1)) ? x : a));
-    if (key === 'overthr') assert.ok(at.p[2] >= z0 + 1, `對照改出後高度 ${at.p[2].toFixed(2)}`);
-    else {
-      assert.ok(at.p[2] <= z0, `${key} 改出後高度 ${at.p[2].toFixed(2)} > 進場 ${z0}`);
-      assert.ok(Math.abs(at.v[2]) < 0.5, `${key} 改出後垂直速度 ${at.v[2].toFixed(2)}`);
-    }
+// B5 破 S：跟 B5a 同一套打法（收油＋Roll 翻 180° → 歸零 → Pitch 翻 180° → 補油改出），差別只在有前進速度
+test('B5 pull／direct／push：Roll、Pitch 各累計 180° ± 2°；桿量 ≤ 0.85；歸零 ≥ 0.1 秒且全回中；航向與進場相反；最低高度 ≥ 3m；改出後 1 秒不高於進場', () => {
+  for (const key of ['pull', 'direct', 'push']) {
+    const r = run('B5', key), m = r.mem.marks, rec = r.rec, z0 = 12;
+    const sum = (ch, t0, t1) => rec.filter((x) => x.t >= t0 && x.t < t1).reduce((a, x) => a + Math.abs(x[ch]) * 500 / 240, 0);
+    assert.ok(Math.abs(sum('roll', m.p2, m.p3 + 1e-6) - 180) <= 2, `${key} Roll 累計 ${sum('roll', m.p2, m.p3 + 1e-6).toFixed(1)}°`);
+    assert.ok(Math.abs(sum('pitch', m.z1, m.p4 + 1e-6) - 180) <= 2, `${key} Pitch 累計 ${sum('pitch', m.z1, m.p4 + 1e-6).toFixed(1)}°`);
+    const seg = rec.filter((x) => x.t >= m.p2 && x.t <= m.p4);
+    assert.ok(Math.max(...seg.map((x) => Math.max(Math.abs(x.roll), Math.abs(x.pitch)))) <= 0.85 + 1e-9, `${key} 桿量超過 0.85`);
+    assert.ok(m.z1 - m.p3 >= 0.1, `${key} 歸零 ${(m.z1 - m.p3).toFixed(2)}s`);
+    for (const x of rec.filter((x) => x.t > m.p3 + 1e-9 && x.t < m.z1)) assert.ok(x.roll === 0 && x.pitch === 0 && x.yaw === 0, `${key} 歸零期間有桿量`);
+    const e0 = euler(rec[0].R), e1 = euler(rec.at(-1).R); let dh = e1.yaw - e0.yaw; dh = ((dh + 540) % 360) - 180;
+    assert.ok(Math.abs(Math.abs(dh) - 180) <= 10, `${key} 航向差 ${dh.toFixed(1)}°`);
+    assert.ok(Math.min(...rec.map((x) => x.p[2])) >= 3, `${key} 最低高度 ${Math.min(...rec.map((x) => x.p[2])).toFixed(2)}m`);
+    const at = rec.find((x) => x.t >= m.p4 + 1);
+    assert.ok(at.p[2] <= z0, `${key} 改出後 1 秒高度 ${at.p[2].toFixed(2)} > 進場 ${z0}`);
+    assert.equal(r.crashed, false);
+    assert.equal(r.touched, false);
   }
 });
 
-test('B5 push（對照：有速度時推 Pitch）：Roll 180° ± 5°；機頭曾 > 30° 朝天；推桿段沒有往上的半圈；改出時還在往前飛（pull 則相反）；航向差 180° ± 10°；不觸地', () => {
-  const L = lesson('B5'), v = variant('B5', 'push'), r = runDemo(L, v), m = r.mem.marks, rec = r.rec;
-  assert.equal(jsonVariant('B5', 'push').kind, 'contrast');
-  assert.equal(v.push, true);
-  let acc = 0; for (const x of rec.filter((x) => x.t >= m.p2 && x.t < m.p3)) acc += Math.abs(x.roll) * 500 / 240;
-  assert.ok(Math.abs(acc - 180) <= 5, `Roll 段 ${acc.toFixed(1)}°`);
-  const seg = rec.filter((x) => x.t >= m.p3 && x.t <= m.p4), nose = (x) => Math.asin(Math.max(-1, Math.min(1, x.R[6]))) * 180 / Math.PI;
-  assert.ok(Math.max(...seg.map(nose)) > 30, `機頭仰角最大 ${Math.max(...seg.map(nose)).toFixed(0)}°`);
-  // 推桿段（機頭抬過 30° 之後）：高度不超過進場 + 0.5m，也不再往上
-  const i30 = seg.findIndex((x) => nose(x) > 30), after = seg.slice(i30);
-  assert.ok(Math.max(...after.map((x) => x.p[2])) <= 12.5, `推桿段最高 ${Math.max(...after.map((x) => x.p[2])).toFixed(2)} m`);
-  assert.ok(Math.max(...after.map((x) => x.v[2])) < 0, '推桿段不該有往上的垂直速度');
-  const end = rec.reduce((a, x) => (Math.abs(x.t - m.p4) < Math.abs(a.t - m.p4) ? x : a));
-  assert.ok(end.v[0] > 1, `改出時往前（進場方向）速度 ${end.v[0].toFixed(2)}`);
-  const pm = run('B5', 'pull'), pend = pm.rec.reduce((a, x) => (Math.abs(x.t - pm.mem.marks.p4) < Math.abs(a.t - pm.mem.marks.p4) ? x : a));
-  assert.ok(pend.v[0] < 0, `pull 改出時水平速度 ${pend.v[0].toFixed(2)}（應 < 0）`);
-  const e0 = euler(rec[0].R), e1 = euler(end.R); let dh = e1.yaw - e0.yaw; dh = ((dh + 540) % 360) - 180;
-  assert.ok(Math.abs(Math.abs(dh) - 180) <= 10, `改出時航向差 ${dh.toFixed(1)}°`);
-  assert.equal(r.touched, false);
-  assert.deepEqual(jsonLevels.find((l) => l.id === 'B5').variants.map((x) => x.key), ['pull', 'direct', 'push', 'overthr']);
-  assert.deepEqual(jsonLevels.find((l) => l.id === 'B5').variants.filter((x) => x.kind === 'style').map((x) => x.key), ['pull', 'direct']);
-  assert.deepEqual(jsonLevels.find((l) => l.id === 'B5').variants.filter((x) => x.kind === 'contrast').map((x) => x.key), ['push', 'overthr']);
+test('B5 推、拉皆為飛法：push 為 style（左 Roll ＋ 推 Pitch，Pitch 桿正號）、pull 為拉（負號）；overthr 為對照，改出後高度高於進場；ghost 沒有預期半圓', () => {
+  const vs = jsonLevels.find((l) => l.id === 'B5').variants;
+  assert.deepEqual(vs.map((x) => x.key), ['pull', 'direct', 'push', 'overthr']);
+  assert.deepEqual(vs.filter((x) => x.kind === 'style').map((x) => x.key), ['pull', 'direct', 'push']);
+  assert.deepEqual(vs.filter((x) => x.kind === 'contrast').map((x) => x.key), ['overthr']);
+  const sgn = (key) => { const r = run('B5', key), m = r.mem.marks; return Math.sign(r.rec.filter((x) => x.t >= m.z1 && x.t <= m.p4).reduce((a, x) => a + x.pitch, 0)); };
+  const rsg = (key) => { const r = run('B5', key), m = r.mem.marks; return Math.sign(r.rec.filter((x) => x.t >= m.p2 && x.t <= m.p3).reduce((a, x) => a + x.roll, 0)); };
+  assert.equal(sgn('pull'), -1); assert.equal(sgn('push'), 1); assert.equal(rsg('pull'), 1); assert.equal(rsg('push'), -1);
+  const o = run('B5', 'overthr'), m = o.mem.marks;
+  assert.ok(Math.max(...o.rec.filter((x) => x.t >= m.p4).map((x) => x.p[2])) > 12 + 1, '對照改出後高度沒有高於進場');
+  for (const v of lesson('B5').variants) assert.deepEqual(lesson('B5').ghost(v), []);
 });
 
-test('B5 改出：不抖——|Roll 桿量| < 10%、|Yaw 桿量| < 5%、|機身 Roll 角| < 5°、航向變化 < 3°；每 0.1 秒桿量變化 ≤ 20%', () => {
+test('B5 改出：不抖——|Roll 桿量| < 10%、|Yaw 桿量| < 5%、|機身 Roll 角| < 5°、航向變化 < 3°；Roll／Pitch 每 0.1 秒變化 ≤ 20%、油門 ≤ 62%（油門追得較快，才接得住下沉）', () => {
   for (const v of lesson('B5').variants) {
     const r = runDemo(lesson('B5'), v), seg = r.rec.filter((x) => x.t >= r.mem.marks.p4), e0 = euler(seg[0].R).yaw;
     assert.ok(Math.max(...seg.map((x) => Math.abs(x.roll))) < 0.10, `${v.key} Roll 桿量 ${Math.max(...seg.map((x) => Math.abs(x.roll)))}`);
@@ -261,20 +259,8 @@ test('B5 改出：不抖——|Roll 桿量| < 10%、|Yaw 桿量| < 5%、|機身 
     assert.ok(dh < 3, `${v.key} 航向變化 ${dh.toFixed(1)}°`);
     for (let i = 0; i + 24 < seg.length; i++) {
       const a = seg[i], b = seg[i + 24];
-      for (const ch of ['roll', 'pitch', 'thr']) assert.ok(Math.abs(b[ch] - a[ch]) <= 0.2 + 1e-6, `${v.key} ${ch} 0.1 秒變化 ${Math.abs(b[ch] - a[ch]).toFixed(3)}`);
+      for (const [ch, lim] of [['roll', 0.2], ['pitch', 0.2], ['thr', 0.62]]) assert.ok(Math.abs(b[ch] - a[ch]) <= lim + 1e-6, `${v.key} ${ch} 0.1 秒變化 ${Math.abs(b[ch] - a[ch]).toFixed(3)}`);
     }
-  }
-});
-
-test('B5 拉桿穿過下半圈：Pitch 為主（平均 |Pitch| > 10%，|Roll|、|Yaw| < 5%），半滾收在 180° ± 2°', () => {
-  for (const v of lesson('B5').variants.filter((x) => x.key !== 'push')) { // push 沒有「下半圈」（它是推桿穿過上半圈）
-    const r = runDemo(lesson('B5'), v), prof = stageProfile(lesson('B5'), v, r);
-    const i = jsonVariant('B5', v.key).stages.findIndex((s) => s.label === '拉桿穿過下半圈');
-    assert.ok(i >= 0, `B5/${v.key} 找不到下半圈階段`);
-    const s = prof[i];
-    assert.ok(s.roll < 5 && s.yaw < 5 && s.pitch > 10, `B5/${v.key} 下半圈 Roll ${s.roll.toFixed(1)}% Pitch ${s.pitch.toFixed(1)}% Yaw ${s.yaw.toFixed(1)}%`);
-    const e = euler(r.rec.find((x) => x.t >= r.mem.marks.p3).R);
-    assert.ok(Math.abs(Math.abs(e.roll) - 180) <= 2, `B5/${v.key} 半滾結束滾轉角 ${e.roll.toFixed(1)}°`);
   }
 });
 

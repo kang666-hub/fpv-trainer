@@ -260,12 +260,12 @@ const B4 = {
     : [v.P.T0, v.P.T0 + v.on.yaw, v.P.T0 + v.on.balance, v.P.T0 + tcOf(v.P), 8]),
 };
 
-// B5 破 S：（可選）微拉高 → 收油半滾成倒置 → 半圈穿過下方 → 改出
+// B5 破 S：（可選）微拉高 → 收油＋Roll 翻 180° → 歸零 → Pitch 翻 180°（推、拉皆可）→ 補油改出。就是有前進速度的 B5a
 const B5_V = 6, B5_R = 3, B5_Z = 12;
 const B5_LEVEL = (t) => ({ p: [-B5_V + B5_V * t, 0, B5_Z], v: [B5_V, 0, 0], psi: 0, psid: 0 });
 const B5 = {
   id: 'B5', dur: 7, fpvVs: true, cam: 'rear', rear: { back: 11.2, backM: 12.0 }, side: { pos: [4, -21, 7.5], look: [4, 0, 7.5] }, fullTrail: true,
-  variants: [{ key: 'pull', pullUp: true }, { key: 'direct', pullUp: false }, { key: 'push', pullUp: true, push: true, rollDir: -1 }, { key: 'overthr', pullUp: false, over: true }],
+  variants: [{ key: 'pull', pullUp: true }, { key: 'direct', pullUp: false }, { key: 'push', pullUp: true, rollDir: -1, pitchDir: 1 }, { key: 'overthr', pullUp: false, over: true }],
   start: (sim) => startFromRef(sim, B5_LEVEL),
   ctrl: (v, sim, t, mem) => {
     const m = (mem.marks = mem.marks || {});
@@ -279,66 +279,31 @@ const B5 = {
       m.p2 = t;
     }
     if (!m.p2) m.p2 = t;
-    if (!m.p3) { // 收油＋半滾（以累計滾轉角收尾，180° ± 2° 內）
-      mem.acc = mem.acc || 0;
-      const stick = clamp(Math.max(0.12, (180 - mem.acc) / 6), 0, 1);
-      mem.acc += stick * 500 * DT;
-      if (mem.acc >= 179.9) m.p3 = t;
-      return { thr: 0.12, roll: (v.rollDir || 1) * stick, pitch: 0, yaw: 0, phase: null };
+    if (!mem.lp) mem.lp = { x0: sim.p[0], z0: sim.p[2], t0: t };   // overlay 用：翻轉起點的位置
+    const c = (o) => ({ thr: B5A.thrFlip, roll: 0, pitch: 0, yaw: 0, phase: null, ...o });
+    if (!m.p3) { // ③ 收油＋Roll 翻 180°（一桿到位，跟 B5a 同一套 b5aPulse）
+      const r = b5aPulse(mem, 'roll', 180, v.rollDir || 1);
+      if (r.done) m.p3 = t;
+      return c({ roll: r.stick });
     }
-    if (v.push && !m.p4) { // 對照：倒置後有速度時推 Pitch，機頭往天空繞但路線繞不上去；倒置時油門小（推力朝下），過了 90° 依傾角補油，不追高度
-      if (!mem.lp) mem.lp = { x0: sim.p[0], z0: sim.p[2], t0: t };
-      mem.pacc = mem.pacc || 0;
-      const st = Math.min(0.45, Math.max(0, (180 - mem.pacc) / (500 * DT)));
-      mem.pacc += st * 500 * DT;
-      if (180 - mem.pacc < 1e-6) m.p4 = t;
-      else {
-        const up = sim.R[8], rp = clamp(up / 0.5, 0, 1), out = { thr: 0.05 + rp * (clamp(HOVER / Math.max(up, 0.4), 0, 1) - 0.05), roll: 0, pitch: st, yaw: 0, phase: null }; // 倒置時小，機頭朝上後依傾角逐漸加（不看高度）
-        mem.last = { thr: out.thr, roll: 0, pitch: out.pitch };
-        return out;
-      }
+    if (!m.z1) { m.zeroT = m.zeroT ?? t; if (t - m.zeroT >= B5A.zero) m.z1 = t; else return c({}); } // ④ 歸零：搖桿全回中、油門仍收著
+    if (!m.p4) { // ⑤ Pitch 翻 180°（拉 = −1、推 = +1，跟 B5a 同號）；最後一格的桿量留給改出接續
+      const p = b5aPulse(mem, 'pitch', 180, v.pitchDir ?? -1);
+      mem.last = { thr: B5A.thrFlip, roll: 0, pitch: p.stick };
+      if (p.done) m.p4 = t;
+      return c({ pitch: p.stick });
     }
-    const Rr = B5_R, w = B5_V / Rr, Tl = Math.PI / w;
-    if (!mem.lp) mem.lp = { x0: sim.p[0], z0: sim.p[2], t0: t };
-    const { x0, z0, t0 } = mem.lp, tau = t - t0;
-    if (!v.push && tau < Tl) { // 下半圈以 Pitch 為主：前饋角速度 ω = V/R 換成 Pitch 桿量，再加推力方向的誤差回饋；Roll、Yaw 只做小修正
-      const ph = w * tau, s = Math.sin(ph), c = Math.cos(ph);
-      const ad = [-B5_V * w * s + DRAG * B5_V * c + 4 * (x0 + Rr * s - sim.p[0]) + 3.2 * (B5_V * c - sim.v[0]), 0,
-        -B5_V * w * c - DRAG * B5_V * s + 4 * (z0 - Rr + Rr * c - sim.p[2]) + 3.2 * (-B5_V * s - sim.v[2]) + G];
-      const xb = M.col(sim.R, 0), yb = M.col(sim.R, 1), zb = M.col(sim.R, 2);
-      const e = Math.atan2(zb[2] * ad[0] - zb[0] * ad[2], zb[0] * ad[0] + zb[2] * ad[2]); // 推力方向到想要的方向，在垂直面內差多少
-      const wy = w + 9 * e;                                                              // 世界座標繞 y 軸的角速度（前饋 + 回饋）
-      const yy = Math.abs(yb[1]) > 0.3 ? yb[1] : 0.3;
-      const out = {
-        thr: clamp(V.dot(ad, zb) / TMAX, 0, 1),
-        pitch: clamp(wy * yb[1] / (RATE.pitch * D2R), -1, 1),
-        roll: clamp(6 * zb[1] / yy / (RATE.roll * D2R), -0.2, 0.2),
-        yaw: clamp(6 * xb[1] / yy / (RATE.yaw * D2R), -0.2, 0.2),
-        phase: null,
-      };
-      if (v.over && tau > 0.4 * Tl) out.thr = 1; // 對照：拉到中段就猛推油門
-      mem.last = { thr: out.thr, roll: out.roll, pitch: out.pitch };
-      return out;
-    }
-    if (!m.p4) m.p4 = t;
     // 改出：不再切去追路線（不修橫向位置與航向）。Pitch 把機身帶回進場時的姿態、Roll 只修回 0°、Yaw 0、油門回到維持高度所需；
     // 桿量從半圓最後一格的值開始平滑變化（每 0.1 秒 ≤ 20%），不會在切換那一格跳。對照 over 只保留「油門推太大」這個錯誤。
     const e = euler(sim.R), step = 2.0 * DT, slew = (cur, goal) => cur + clamp(goal - cur, -step, step);
     const ex = (mem.ex = mem.ex || { ...(mem.last || { thr: HOVER, roll: 0, pitch: 0 }) });
     const goalThr = v.over ? 1 : clamp(HOVER / Math.max(0.3, sim.R[8]) - 0.12 * sim.v[2], 0, 1);
-    ex.thr = slew(ex.thr, goalThr);
+    ex.thr = ex.thr + clamp(goalThr - ex.thr, -3 * step, 3 * step); // 油門追得比姿態快：翻完正在往下掉，要及時補上去（6／秒）
     ex.roll = slew(ex.roll, clamp(-e.roll * 8 / 500, -1, 1));
     ex.pitch = slew(ex.pitch, clamp(((mem.pitch0 ?? 0) - e.pitch) * 8 / 500, -1, 1));
     return { thr: ex.thr, roll: ex.roll, pitch: ex.pitch, yaw: 0, phase: null };
   },
-  // 預期路徑（飛法版）：半滾點之後的半圓＋改出直線。對照版不畫
-  ghost: (v) => {
-    if (v.over || v.push) return [];
-    const { x0, z0 } = probe(B5, v).mem.lp, w = B5_V / B5_R, o = [];
-    for (let ph = 0; ph <= Math.PI + 1e-6; ph += Math.PI / 24) o.push([x0 + B5_R * Math.sin(ph), 0, z0 - B5_R + B5_R * Math.cos(ph)]);
-    o.push([x0 - 8, 0, z0 - 2 * B5_R]);
-    return o;
-  },
+  ghost: () => [],
   // 參照物：進場高度線（白）、改出高度線（青，改出後才出現）、兩線之間的 Δh、同高的參照塔
   overlay: (v, sim, t, mem) => {
     const { x0 } = probe(B5, v).mem.lp, m = mem.marks || {}, out = { lines: [{ x0: x0 - 8, x1: x0 + 4, z: B5_Z, color: 'rgba(255,255,255,0.8)', label: `進場高度 ${B5_Z} m` }], towers: [{ pos: [x0, 1.2], h: B5_Z }] };
@@ -350,7 +315,7 @@ const B5 = {
     }
     return out;
   },
-  stages: (v) => { const m = probe(B5, v).mem.marks; return v.pullUp ? [m.p1, m.p2, m.p3, m.p4, B5.dur] : [m.p1, m.p3, m.p4, B5.dur]; },
+  stages: (v) => { const m = probe(B5, v).mem.marks; return v.pullUp ? [m.p1, m.p2, m.p3, m.z1, m.p4, B5.dur] : [m.p1, m.p3, m.z1, m.p4, B5.dur]; },
 };
 
 // B5a 原地破 S（退階）：10m 懸停 → 拉油門往上（帶出往上的速度）→ 收油＋Roll 翻 180°（一桿到位，翻轉時還在往上）→ 歸零（搖桿全回中）→ Pitch 翻 180° 回正（一桿到位）→ 補油接住。
