@@ -512,7 +512,7 @@ const S1 = {
 // S2／S3 Pitch、Roll：桿量是「轉動速度」，放開就停在當下角度
 const sTilt = (id, axis, follow, rear) => ({
   id, dur: 4.5, cam: 'rear', rear, side: { follow },
-  variants: [{ key: 'a15', ang: 15, z0: 20, T: 0.3, ramp: 0.1 }, { key: 'a45', ang: 45, z0: 20, T: 0.45, ramp: 0.12 }, { key: 'hold', hold: true, z0: 45 }],
+  variants: [{ key: 'a15', ang: 15, z0: 4, T: 0.3, ramp: 0.1 }, { key: 'a45', ang: 45, z0: 13, T: 0.45, ramp: 0.12 }, { key: 'hold', hold: true, z0: 45 }],
   start: (sim, v) => startAir(sim, (v && v.z0) || 20),
   ctrl: (v, sim, t, mem) => {
     const c = { thr: HOVER, roll: 0, pitch: 0, yaw: 0, phase: null };
