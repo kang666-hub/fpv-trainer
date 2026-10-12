@@ -17,7 +17,7 @@ python3 -m http.server 8000
 - 舊版進度（v1）第一次讀到時自動轉成 v2，原文備份在 `fpv-trainer-progress-v1-backup`；舊匯出檔也能匯入
 
 ## 飛機模型（v3.9）
-- `assets/models/kodo_lowpoly.json`：kodo 五吋機架低多邊形模型（2,376 個三角面，mm，x 機頭前、y 左、z 上）。`js/model.js`（純函式）負責 `parseModel`（換成公尺、縮放到對角軸距 = `BODY` 對角軸距）、`visibleTris`（背面剔除、平面著色、由遠到近排序）。
+- `assets/models/kodo_lowpoly.json`：Kodō 五吋機架低多邊形模型（2,376 個三角面，mm，x 機頭前、y 左、z 上）。`js/model.js`（純函式）負責 `parseModel`（換成公尺、縮放到對角軸距 = `BODY` 對角軸距）、`visibleTris`（背面剔除、平面著色、由遠到近排序）。
 - 細節分級（`lodSelect`，依機身在螢幕上的寬度 px）：< 26 簡化（十字＋點）、26–150 用 `kodo_lowpoly.json`、≥ 150 用精緻版 `assets/models/kodo_v2.json`（6,452 面）；hi 往下要降到 130 以下才切回 low（遲滯）。兩個檔都在第一次需要時才載入，載入中或失敗退回 low／舊畫法。
 - 裸槳：沒有槳盤。每個 pad 畫 3 片實心槳葉（`propBlade` 多邊形，`propSpin` 決定轉向，反轉的槳 y 取負），油門 > 40% 時多畫落後 8°、16° 的淡色殘影；槳依整顆槳的深度插進三角形排序。打光：兩盞固定燈＋環境光（亮度 = 0.32 + 0.6|n·L1| + 0.2|n·L2|）。
 
